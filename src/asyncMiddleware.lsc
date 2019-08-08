@@ -1,0 +1,41 @@
+// Async middleware for express.js
+
+shim(middleware) ->
+  (req, res, next): void ->
+    middleware(req, res)
+      .then(->
+        // Assume request has been handled if headers were sent.
+        if not res.headersSent:
+          next()
+      )
+      .catch((err) -> next(err))
+
+errorHandlerShim(middleware) ->
+  (err, req, res, next): void ->
+    middleware(err, req, res)
+      .then(-> next())
+      .catch((err) -> next(err))
+
+// Attach middleware implemented as async functions.
+// router - Any object compliant with the Express router API, including an
+// express instance.
+//
+// method - The HTTP method associated with the middleware, or `null` for
+// a method-agnostic middleware
+//
+// path - The HTTP request path associated with a middleware, or `null` for
+// a middleware that runs on all paths.
+//
+// ...handlers - A series of handlers, each of which must be an async function.
+export asyncMiddleware(router, method, path, ...handlers) ->
+  nextHandlers = handlers.map(handler ->
+    if handler.length < 4:
+      shim(handler)
+    else:
+      errorHandlerShim(handler)
+  )
+
+  if method:
+    router[method](path, ...nextHandlers)
+  else:
+    if path: router.use(path, ...nextHandlers) else: router.use(...nextHandlers)

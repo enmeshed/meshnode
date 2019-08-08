@@ -1,0 +1,74 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+
+http = require('http')
+express = require('express')
+deferred = require('p-defer')
+
+debug = require('debug')('meshnode')
+
+export class HttpMeshServicePort extends NodeLocalPort:
+  running = false
+  provider = null
+  service = null
+
+  constructor(node, provider, service) ->
+    super(node)
+    this.provider = provider
+    this.service = service
+
+    app = express()
+    // Assume service is behind some proxy layer.
+    app.enable('trust proxy')
+    // Disallow fingerprinting
+    app.disable('x-powered-by')
+
+    this.app = app
+
+  getExpressApp() -> this.app
+
+  // XXX: maybe necessary to change ports here
+  reconfigure(provider, service) ->
+    this.provider = provider
+    this.service = service
+
+  start(): void ->
+    if this.server:
+      throw new Error(`${this.service.name}: service already running`)
+
+    { app } = this
+    def = deferred()
+
+    portIndex = this.provider.getServiceOrdinal(this.service)
+    if portIndex == null:
+      throw new Error(`HttpMeshServicePort.start(): port not found`)
+
+    port = this.node.ports.host_base + portIndex
+
+    this.server = http.createServer(app)
+    debug('starting http server for', this.service.name, 'on port', port)
+    this.server.listen(port, (err) =>
+      if err:
+        this.server = null
+        def.reject(err)
+      else:
+        def.resolve()
+    )
+
+    def.promise
+
+  shutdown(): void ->
+    debug('stopping http server for', this.service.name)
+    server = this.server
+
+    if server:
+      def = deferred()
+      server.close((err) =>
+        if err:
+          def.reject(err)
+        else:
+          this.server = null
+          def.resolve()
+      )
+      def.promise
+    else:
+      Promise.resolve(undefined)

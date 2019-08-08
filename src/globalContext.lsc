@@ -1,0 +1,23 @@
+{ Contexty } = require('contexty')
+
+let ctxContainer = null
+
+getContextContainer() ->
+  if ctxContainer: return ctxContainer
+
+  // Create context container as well as root context
+  now ctxContainer = new Contexty()
+  ctxContainer.create()
+  ctxContainer
+
+// Get the context of the current async call.
+export getContext() ->
+  getContextContainer().context
+
+// Create a new layer of context corresponding to the current async call.
+export createContext() ->
+  getContextContainer().create()
+
+// Get the managing mesh node
+export getNode() ->
+  getContext().node

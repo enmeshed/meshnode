@@ -1,6 +1,9 @@
 import { Node, NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { Protocols, ClientEnhancer, ServerEnhancer } from '@enmeshed/grpc'
 
+import { HttpMeshServicePort } from './HttpServicePort'
+import { createContext } from './globalContext'
+
 grpc = require('@grpc/grpc-js')
 debug = require('debug')('meshnode')
 
@@ -15,26 +18,37 @@ export class MeshNode extends Node:
   // Override for unit testing purposes
   TEST_URL_OVERRIDE = null
 
+  constructor() ->
+    super()
+
+    // Create global context and add node to it.
+    ctx = createContext()
+    ctx.node = this
+
   _joined() -> return
   _createServicePort(provider, service) ->
+    debug('_createServicePort', provider, service)
     match service.type:
-      | 'grpc_mesh': new GrpcMeshServicePort(this, provider, service)
-      | else: throw new Error('unrecognized service type')
+      | 'grpc_direct': new GrpcServicePort(this, provider, service, false)
+      | 'grpc_mesh': new GrpcServicePort(this, provider, service, true)
+      | 'http_mesh': new HttpMeshServicePort(this, provider, service)
+      | else: throw new Error('unrecognized service type ' + service.type)
   _createClientPort(service) ->
     match service.type:
       | 'grpc_mesh': new GrpcMeshClientPort(this, service)
-      | else: throw new Error('unrecognized service type')
+      | else: throw new Error('unrecognized service type ' + service.type)
 
-class GrpcMeshServicePort extends NodeLocalPort:
+class GrpcServicePort extends NodeLocalPort:
   running = false
   provider = null
   service = null
   grpcBindings = {}
 
-  constructor(node, provider, service) ->
+  constructor(node, provider, service, isMesh) ->
     super(node)
     this.provider = provider
     this.service = service
+    this.isMesh = isMesh
 
   bind(protoName, bindings) ->
     this.grpcBindings[protoName] = bindings
@@ -49,11 +63,15 @@ class GrpcMeshServicePort extends NodeLocalPort:
       if not this.grpcBindings[proto]:
         throw new Error(`GrpcMeshServicePort.start(): service ${this.service.name} does not implement required protocol ${proto}`)
 
-    portIndex = this.provider.getServiceOrdinal(this.service)
-    if portIndex == null:
-      throw new Error(`GrpcMeshServicePort.start(): port not found`)
+    let port = this.service.port
 
-    port = this.node.ports.host_base + portIndex
+    // For mesh services, automatically determine the port
+    if this.isMesh:
+      portIndex = this.provider.getServiceOrdinal(this.service)
+      if portIndex == null:
+        throw new Error(`GrpcMeshServicePort.start(): port not found`)
+
+      now port = this.node.ports.host_base + portIndex
 
     // Load protobufs
     this.node.protos.load()
