@@ -1,0 +1,52 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+mysql = require('mysql2/promise')
+
+debug = require('debug')('meshnode:mysql')
+
+export class MysqlClientPort extends NodeLocalPort:
+  pools = []
+
+  constructor(node, service) ->
+    super(node)
+    this.service = service
+
+  createPool() -/>
+    if not this.dbConf:
+      throw new Error("MySQLClientPort: not started")
+    pool = mysql.createPool(this.dbConf)
+    this.pools.push(pool)
+    pool
+
+  destroyPool(pool) -/>
+    <- pool.end()
+    this.pools = this.pools.filter(x -> x != pool)
+    return
+
+  shutdown() -/>
+    debug('stopping mysql client for', this.service.name)
+    this.dbConf = null
+    lastPools = this.pools
+    this.pools = []
+    <- [...for elem pool in lastPools: [pool.end()]]
+    return
+
+  start() -/>
+    // If we already have open pools, this service was already started
+    if this.pools.length > 0:
+      throw new Error(`mysql client for ${this.service.name} was already started`)
+
+    { node, service } = this
+    provider <- service.awaitProvider(30000)
+
+    // Determine mysql config
+    this.dbConf = {
+      host: provider.host
+      port: provider.port
+      database: provider.database
+      user: provider.user
+      password: node.getInjectedSecret(provider.passwordSecretId)
+    }
+
+  reconfigure(provider, service) ->
+    // Reconfigure if mysql args change
+    return

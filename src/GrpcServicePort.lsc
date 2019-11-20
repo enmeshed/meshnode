@@ -1,0 +1,137 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+import { ServerEnhancer } from '@enmeshed/grpc'
+import * as opentracing from "opentracing"
+
+import { createContext, getNode } from './globalContext'
+import { ExtensionHeader } from './ExtensionHeader'
+
+grpc = require('@grpc/grpc-js')
+jaegerClient = require('jaeger-client')
+
+debug = require('debug')('meshnode:grpc')
+
+class TracingServerEnhancer extends ServerEnhancer:
+  constructor(server, tracer) ->
+    super(server)
+    this.tracer = tracer
+
+  requestWillBegin(requestContext): void ->
+    super.requestWillBegin(requestContext)
+
+    { tracer } = this
+    globalContext = createContext()
+
+    { metadata, methodName } = requestContext
+
+    headerMap = (metadata?.getMap() or {})
+    debug("TracingServerEnhancer.requestWillBegin:", methodName, "headerMap", headerMap)
+
+    ///////////// extension header
+    extensionHeader = ExtensionHeader.setFromHeaderData(headerMap)
+    requestContext.extensionHeader = extensionHeader
+
+    ///////////// OpenTracing context
+    wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, headerMap)
+    span = if wireCtx:
+      debug("TracingServerEnhancer.requestWillBegin:", methodName, "creating child span for parent", wireCtx?._spanIdStr)
+      tracer.startSpan(requestContext.methodName, {childOf: wireCtx})
+    else:
+      debug("TracingServerEnhancer.requestWillBegin:", methodName, "creating free span")
+      tracer.startSpan(requestContext.methodName)
+    globalContext.openTracingSpan = span
+    requestContext.openTracingSpan = span
+
+    span.setTag("span.kind", "server")
+    span.log({event: "request_received"})
+
+  requestDidEnd(requestContext): void ->
+    super.requestDidEnd(requestContext)
+
+    { error, methodName, result } = requestContext
+    if error:
+      debug("TracingServerEnhancer.requestDidEnd:", methodName, "error:", error)
+    elif result:
+      debug("TracingServerEnhancer.requestDidEnd:", methodName, "result:", result)
+
+    span = requestContext.openTracingSpan
+    if not span: return
+
+    if error:
+      // TODO: not-found errors are OK and do not need to be logged.
+      span.setTag("error", true)
+      span.setTag("sampling.priority", 1)
+      span.log({
+        event: "error"
+        "error.message": error.stack or error.message
+        error: error
+      })
+    else:
+      span.log({event: "request_finished"})
+
+    span.finish()
+
+export class GrpcServicePort extends NodeLocalPort:
+  running = false
+  provider = null
+  service = null
+  grpcBindings = {}
+
+  constructor(node, provider, service, isMesh) ->
+    super(node)
+    this.provider = provider
+    this.service = service
+    this.isMesh = isMesh
+
+    // Create Jaeger tracer for this service
+    this.tracer = jaegerClient.initTracer(
+      {
+        serviceName: service.name
+      }
+    )
+
+  bind(protoName, bindings) ->
+    this.grpcBindings[protoName] = bindings
+
+  reconfigure(provider, service) ->
+    // We only need to reconfigure if our local port number would have
+    // changed, or if the required protocols changed.
+    return
+
+  start(): void -/>
+    if this.server:
+      throw new Error(`GrpcServicePort.start(): service already running`)
+
+    { protocols } = this.service
+    for elem proto in protocols:
+      if not this.grpcBindings[proto]:
+        throw new Error(`GrpcMeshServicePort.start(): service ${this.service.name} does not implement required protocol ${proto}`)
+
+    let port = this.service.port
+
+    // For mesh services, automatically determine the port
+    if this.isMesh:
+      portIndex = this.provider.getServiceOrdinal(this.service)
+      if portIndex == null:
+        throw new Error(`GrpcMeshServicePort.start(): port not found`)
+
+      now port = this.node.ports.host_base + portIndex
+
+    // Load protobufs
+    this.node.protos.load()
+
+    baseServer = new grpc.Server()
+    enhServer = new TracingServerEnhancer(baseServer, this.tracer)
+    this.server = enhServer
+
+    for key svcName, val bindings in this.grpcBindings:
+      enhServer.addService(this.node.protos.service(svcName), bindings)
+
+    <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())
+    enhServer.start()
+    debug('started gRPC server for', this.service.name, 'on port', port)
+
+  shutdown(): void -/>
+    debug('stopping gRPC server for', this.service.name)
+    if this.server:
+      <- this.server.shutdown()
+      this.server = null

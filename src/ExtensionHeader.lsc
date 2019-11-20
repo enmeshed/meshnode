@@ -1,0 +1,106 @@
+import { getNode, getContext } from './globalContext'
+import { Metadata } from '@enmeshed/grpc'
+
+lodash = require('lodash')
+
+export class ExtensionHeader:
+  // Actual header data
+  data = {}
+
+  getData() -> this.data
+
+  // Get data in a format that is compatible with the mesh.auth.ExtensionHeader
+  // protobuf for wire serialization
+  toProtobufFormat() -> this.data
+
+  // Receive data from a deserialized protobuf.
+  fromProtobufFormat(pdata) -> this.data = pdata
+
+  setData(data) -> this.data = data
+
+  clone() ->
+    x = new this.constructor()
+    x.setData(lodash.cloneDeep(this.getData()))
+    x
+
+  getInitiatingUserId() ->
+    this.data?.initiator?.user_id
+
+  getInitiatingSessionId() ->
+    this.data?.initiator?.session_id
+
+  hasEndorsementOfType(type) ->
+    { endorsements } = this.data
+    if not endorsements: return null
+
+    endorsements.find(x -> x.type == type)
+
+  allEndorsementsOfType(type) ->
+    { endorsements } = this.data
+    if not endorsements: return []
+
+    endorsements.filter(x -> x.type == type)
+
+  endorse(type, payload, replace): void ->
+    { data } = this
+    data.endorsements = data.endorsements or []
+    endorsements = data.endorsements
+
+    if replace:
+      endorsement = this.hasEndorsementOfType(type)
+      if endorsement:
+        endorsement.type = type
+        endorsement.payload = payload
+        return
+
+    endorsements.push({type, payload})
+
+  elevate(actor, reason): void ->
+    // XXX: Audit-log all elevations
+    this.endorse('elevated', { actor, reason })
+
+  isElevated(): boolean ->
+    !!(this.hasEndorsementOfType('elevated'))
+
+  // Get the extension header for the current context
+  static get(tolerant) ->
+    ctx = getContext()
+    if ctx.extensionHeader: return ctx.extensionHeader
+    if not tolerant: throw new Error('could not get active extension header')
+    getNode().createExtensionHeader()
+
+  // Set the extension header for the current context based on contextual
+  // data, usually an HTTP header.
+  static setFromHeaderData(headers) ->
+    headerData = (headers or {})['x-mesh-extension']
+    ctx = getContext()
+    node = getNode()
+    header = node.createExtensionHeader()
+
+    if headerData:
+      try:
+        buf = Buffer.from(headerData, 'base64')
+        headerString = buf.toString()
+        parsedHeader = JSON.parse(headerString)
+        header.fromProtobufFormat(parsedHeader)
+      catch err:
+        err2 = new Error(`internal gRPC error at node ${node.name}: Failed to parse x-mesh-extension header: [${headerData}]\ncause: ${err.stack}\n`)
+        err2.cause = err
+        throw err2
+
+    ctx.extensionHeader = header
+    header
+
+  toHeaderData() ->
+    headerString = JSON.stringify(this.toProtobufFormat())
+    buf = Buffer.from(headerString)
+    b64header = buf.toString('base64')
+    { 'x-mesh-extension': b64header }
+
+  // Retrieve GRPC metadata representing an elevated-security request.
+  static getElevated(actor, reason) ->
+    header = this.get(true)
+    nextHeader = header.clone()
+    nextHeader.elevate(actor, reason)
+
+    // Create gRPC metadata with elevated header

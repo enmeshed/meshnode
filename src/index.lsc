@@ -1,3 +1,4 @@
 export { MeshNode } from './Node'
 export { getContext, getNode } from './globalContext'
 export { asyncMiddleware } from './asyncMiddleware'
+export { ExtensionHeader } from './ExtensionHeader'

@@ -1,0 +1,84 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+import { ClientEnhancer } from '@enmeshed/grpc'
+import * as opentracing from 'opentracing'
+
+import { getContext } from './globalContext'
+
+debug = require('debug')('meshnode:grpc')
+
+// Append OpenTracing and extension header data to grpc calls
+class TracingClientEnhancer extends ClientEnhancer:
+  requestWillBegin(requestContext): void ->
+    super.requestWillBegin(requestContext)
+
+    { metadata } = requestContext
+    globalContext = getContext()
+    headersCarrier = {}
+
+    // Inject opentracing data
+    span = globalContext.openTracingSpan
+    if span:
+      tracer = span.tracer()
+      tracer.inject(span, opentracing.FORMAT_HTTP_HEADERS, headersCarrier)
+
+    // Inject extension header
+    extensionHeader = globalContext.extensionHeader
+    if extensionHeader and (metadata.get('x-mesh-extension').length == 0):
+      headerData = extensionHeader.toHeaderData()
+      Object.assign(headersCarrier, headerData)
+
+    // Update request headers
+    for key k, val v in headersCarrier:
+      metadata.set(k, v)
+
+    console.log("client.requestWillBegin: new grpc metadata is", metadata)
+
+export class GrpcClientPort extends NodeLocalPort:
+  clientsForProto = {}
+
+  constructor(node, service, isMesh) ->
+    super(node)
+    this.service = service
+    this.isMesh = isMesh
+
+  clientForProtocol(protoName) ->
+    { node, service, clientsForProto, isMesh } = this
+    if clientsForProto[protoName]: return clientsForProto[protoName]
+
+    if not (service.protocols?.includes(protoName)):
+      throw new Error(`Service ${service.name} does not support protocol ${protoName}`)
+
+    { protos } = node
+    protos.load()
+
+    // Override service url for test harness
+    url = if this.node.TEST_URL_OVERRIDE:
+      this.node.TEST_URL_OVERRIDE
+    elif isMesh:
+      `http://127.0.0.1:${node.ports.outgoing_proxy}/grpc/${service.name}`
+    else:
+      if not service.provider:
+        throw new Error(`Direct grpc service ${service.name} does not have a provider.`)
+      `${service.provider.dns}:${service.port}`
+
+    baseClient = protos.client(protoName, url)
+    enhancedClient = new TracingClientEnhancer(baseClient)
+    clientsForProto[protoName] = enhancedClient
+
+    enhancedClient
+
+  start() -/> return
+  reconfigure(provider, service) ->
+    // For mesh services:
+    // We only need to reconfigure if the service has changed protocols.
+    // If it has, dump all existing clients.
+    //
+    // For direct services:
+    // We need to reconfigure if the host or port of the provider changes, or
+    // if protocols change.
+    return
+
+  shutdown() -/>
+    debug('stopping gRPC client for', this.service.name)
+    this.clientsForProto = {}
+    return

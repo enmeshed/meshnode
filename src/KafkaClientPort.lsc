@@ -1,0 +1,70 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+{ Kafka, logLevel } = require('kafkajs')
+
+debug = require('debug')('meshnode:kafka')
+
+export class KafkaClientPort extends NodeLocalPort:
+  connections = []
+  topicPrefix = ''
+  groupPrefix = ''
+
+  constructor(node, service) ->
+    super(node)
+    this.service = service
+
+  producer(...args) -/>
+    prod = this.kafka.producer(...args)
+    <- prod.connect()
+    this.connections.push(prod)
+    prod
+
+  consumer(...args) -/>
+    cons = this.kafka.consumer(...args)
+    <- cons.connect()
+    this.connections.push(cons)
+    cons
+
+  admin(...args) -/>
+    con = this.kafka.admin(...args)
+    <- con.connect()
+    this.connections.push(con)
+    con
+
+  disconnect(con, ...args) -/>
+    <- con.disconnect(...args)
+    this.connections = this.connections.filter(x -> x != con)
+    return
+
+  topic(base) -> this.topicPrefix + base
+
+  group(base) -> this.groupPrefix + base
+
+  shutdown() -/>
+    if not this.kafka:
+      throw new Error("kafka client port was never started")
+
+    debug('stopping Kafka client for', this.service.name)
+    lastCons = this.connections
+    this.connections = []
+    <- [...for elem con in lastCons: [con.disconnect()]]
+    this.kafka = null
+
+  start() -/>
+    if this.kafka:
+      throw new Error("kafka client port already started")
+
+    { node, service } = this
+    provider <- service.awaitProvider(30000)
+
+    this.kafka = new Kafka({
+      logLevel: logLevel.DEBUG
+      clientId: node.name
+      brokers: provider.brokers
+    })
+    this.topicPrefix = if provider.topicPrefix: provider.topicPrefix else: ''
+    this.groupPrefix = if provider.groupPrefix: provider.groupPrefix else: ''
+
+  reconfigure(provider, service) ->
+    // Reconfigure if brokers prefixes, or maps change
+    // Probably should crash the app if prefixes/maps change.
+    return

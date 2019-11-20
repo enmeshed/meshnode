@@ -39,3 +39,6 @@ export asyncMiddleware(router, method, path, ...handlers) ->
     router[method](path, ...nextHandlers)
   else:
     if path: router.use(path, ...nextHandlers) else: router.use(...nextHandlers)
+
+export thisAsyncMiddleware(method, path, ...handlers) ->
+  asyncMiddleware(this, method, path, ...handlers)

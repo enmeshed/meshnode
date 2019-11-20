@@ -1,12 +1,75 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+import * as opentracing from "opentracing"
+import url from 'url'
+import path from 'path'
+import { createContext, getNode } from './globalContext'
+import { enumerateWebpackRoutes } from './webpackRouteEnumerator'
+import { ExtensionHeader } from './ExtensionHeader'
 
 http = require('http')
 express = require('express')
 deferred = require('p-defer')
+jaegerClient = require('jaeger-client')
 
 debug = require('debug')('meshnode')
 
+createTracingMiddleware(tracer) ->
+  tracingMiddleware(req, res, next) ->
+    requestContext = createContext()
+
+    ///////////////////// Create extension header
+    ExtensionHeader.setFromHeaderData(req.headers)
+
+    ///////////////////// Create opentracing span
+    wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, req.headers)
+    pathname = url.parse(req.url).pathname
+    span = tracer.startSpan(pathname, {childOf: wireCtx})
+    requestContext.openTracingSpan = span
+    span.logEvent("request_received")
+
+    // include some useful tags on the trace
+    span.setTag("http.method", req.method)
+    span.setTag("span.kind", "server")
+    span.setTag("http.url", req.url)
+
+    // include trace ID in headers so that we can debug slow requests we see in
+    // the browser by looking up the trace ID found in response headers
+    responseHeaders = {}
+    tracer.inject(span, opentracing.FORMAT_TEXT_MAP, responseHeaders)
+    Object.keys(responseHeaders).forEach(key => res.setHeader(key, responseHeaders[key]))
+
+    // add the span to the request object for handlers to use
+    Object.assign(req, {span})
+
+    // finalize the span when the response is completed
+    finishSpan = () => {
+      span.logEvent("request_finished")
+      // Route matching often happens after the middleware is run. Try changing the operation name
+      // to the route matcher.
+      opName = (req.route && req.route.path) || pathname
+      span.setOperationName(opName)
+      span.setTag("http.status_code", res.statusCode)
+      if (res.error or (res.statusCode >= 500)) {
+        span.setTag("error", true)
+        span.setTag("sampling.priority", 1)
+        if res.error:
+          span.log({
+            event: "error"
+            "error.message": res.error.stack or res.error.message
+            error: res.error
+          })
+      }
+      span.finish()
+    }
+    res.on('close', finishSpan)
+    res.on('finish', finishSpan)
+
+    next()
+
+
 export class HttpMeshServicePort extends NodeLocalPort:
+  static UNRESOLVED_EXTENSION_REGEXP = /\.(lsc|js)$/
+
   running = false
   provider = null
   service = null
@@ -16,22 +79,55 @@ export class HttpMeshServicePort extends NodeLocalPort:
     this.provider = provider
     this.service = service
 
+    // Create Jaeger tracer for this service
+    this.tracer = jaegerClient.initTracer(
+      {
+        serviceName: service.name
+      }
+    )
+
     app = express()
     // Assume service is behind some proxy layer.
     app.enable('trust proxy')
     // Disallow fingerprinting
     app.disable('x-powered-by')
+    // Enable OpenTracing
+    app.use(createTracingMiddleware(this.tracer))
 
     this.app = app
 
   getExpressApp() -> this.app
 
+  // Load routes from a webpack require.context, making the route structure
+  // mirror the on-disk structure of the files.
+  loadRoutesFromWebpackContext(context, basePath = "/", router): void ->
+    now router = router or this.getExpressApp()
+    UNRESOLVED_EXTENSION_REGEXP = this.constructor.UNRESOLVED_EXTENSION_REGEXP
+
+    // Narrow context keys down to only those entries that could be resolved
+    keys = context.keys()
+    resolvedKeys = keys.filter(x -> not UNRESOLVED_EXTENSION_REGEXP.test(x))
+
+    // Split require paths
+    splitKeys = resolvedKeys.map(key ->
+      splitKey = key.split(path.sep)
+      splitKey.splice(0, 1)
+      { requirePath: key, segments: splitKey }
+    )
+
+    debug('loadRoutesFromWebpackContext: loader data:', splitKeys)
+    enumerateWebpackRoutes(basePath, splitKeys, context, router)
+
+  finalErrorHandler(err, req, res, next) ->
+    res.error = err
+    next(err)
+
   // XXX: maybe necessary to change ports here
-  reconfigure(provider, service) ->
+  reconfigure(provider, service): void ->
     this.provider = provider
     this.service = service
 
-  start(): void ->
+  start() ->
     if this.server:
       throw new Error(`${this.service.name}: service already running`)
 
@@ -44,6 +140,8 @@ export class HttpMeshServicePort extends NodeLocalPort:
 
     port = this.node.ports.host_base + portIndex
 
+    // Add final error handler
+    app.use(this.finalErrorHandler.bind(this))
     this.server = http.createServer(app)
     debug('starting http server for', this.service.name, 'on port', port)
     this.server.listen(port, (err) =>
@@ -56,7 +154,7 @@ export class HttpMeshServicePort extends NodeLocalPort:
 
     def.promise
 
-  shutdown(): void ->
+  shutdown() ->
     debug('stopping http server for', this.service.name)
     server = this.server
 
