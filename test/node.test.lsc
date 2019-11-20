@@ -34,7 +34,7 @@ it! 'should work', -/>
 
   node.TEST_URL_OVERRIDE = '127.0.0.1:40000'
 
-  cli = node.getClientPort('service1')
+  cli <- node.getClientPort('service1')
   iface = cli.clientForProtocol('namespace.Test')
 
   resp <- iface.unary({message: 'test message'})
