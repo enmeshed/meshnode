@@ -46,8 +46,8 @@ createTracingMiddleware(tracer) ->
       span.logEvent("request_finished")
       // Route matching often happens after the middleware is run. Try changing the operation name
       // to the route matcher.
-      opName = (req.route && req.route.path) || pathname
-      span.setOperationName(opName)
+      // opName = (req.route && req.route.path) || pathname
+      // span.setOperationName(opName)
       span.setTag("http.status_code", res.statusCode)
       if (res.error or (res.statusCode >= 500)) {
         span.setTag("error", true)
