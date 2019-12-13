@@ -1,6 +1,6 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ServerEnhancer } from '@enmeshed/grpc'
-import { CommonError } from '@enmeshed/errors'
+import { CommonError, errors } from '@enmeshed/errors'
 import * as opentracing from "opentracing"
 
 import { createContext, getNode } from './globalContext'
@@ -121,12 +121,12 @@ export class GrpcServicePort extends NodeLocalPort:
 
   start(): void -/>
     if this.server:
-      throw new Error(`GrpcServicePort.start(): service already running`)
+      throw new errors.InternalError(`GrpcServicePort.start(): service already running`)
 
     { protocols } = this.service
     for elem proto in protocols:
       if not this.grpcBindings[proto]:
-        throw new Error(`GrpcMeshServicePort.start(): service ${this.service.name} does not implement required protocol ${proto}`)
+        throw new errors.UnimplementedError(`GrpcMeshServicePort.start(): service ${this.service.name} does not implement required protocol ${proto}`)
 
     let port = this.service.port
 
@@ -134,7 +134,7 @@ export class GrpcServicePort extends NodeLocalPort:
     if this.isMesh:
       portIndex = this.provider.getServiceOrdinal(this.service)
       if portIndex == null:
-        throw new Error(`GrpcMeshServicePort.start(): port not found`)
+        throw new errors.InternalError(`GrpcMeshServicePort.start(): port not found`)
 
       now port = this.node.ports.host_base + portIndex
 
@@ -149,7 +149,7 @@ export class GrpcServicePort extends NodeLocalPort:
     for key svcName, val bindings in this.grpcBindings:
       svcDef = protos.lookup(svcName)
       if not svcDef:
-        throw new Error(`GrpcMeshServicePort.start(): service ${svcName} could not be resolved by dynamic loader.`)
+        throw new errors.InternalError(`GrpcMeshServicePort.start(): service ${svcName} could not be resolved by dynamic loader.`)
       enhServer.addService(svcDef.methods, bindings)
 
     <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())

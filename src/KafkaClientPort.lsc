@@ -1,4 +1,5 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+import { errors } from '@enmeshed/errors'
 { Kafka, logLevel } = require('kafkajs')
 
 debug = require('debug')('meshnode:kafka')
@@ -41,7 +42,7 @@ export class KafkaClientPort extends NodeLocalPort:
 
   shutdown() -/>
     if not this.kafka:
-      throw new Error("kafka client port was never started")
+      throw new errors.InternalError("kafka client port was never started")
 
     debug('stopping Kafka client for', this.service.name)
     lastCons = this.connections
@@ -51,7 +52,7 @@ export class KafkaClientPort extends NodeLocalPort:
 
   start() -/>
     if this.kafka:
-      throw new Error("kafka client port already started")
+      throw new errors.InternalError("kafka client port already started")
 
     { node, service } = this
     provider <- service.awaitProvider(30000)

@@ -1,5 +1,6 @@
 import { getNode, getContext } from './globalContext'
 import { Metadata } from '@enmeshed/grpc'
+import { errors } from '@enmeshed/errors'
 
 lodash = require('lodash')
 
@@ -66,7 +67,7 @@ export class ExtensionHeader:
   static get(tolerant) ->
     ctx = getContext()
     if ctx.extensionHeader: return ctx.extensionHeader
-    if not tolerant: throw new Error('could not get active extension header')
+    if not tolerant: throw new errors.UnauthenticatedError('could not get active extension header')
     getNode().createExtensionHeader()
 
   // Set the extension header for the current context based on contextual
@@ -84,7 +85,7 @@ export class ExtensionHeader:
         parsedHeader = JSON.parse(headerString)
         header.fromProtobufFormat(parsedHeader)
       catch err:
-        err2 = new Error(`internal gRPC error at node ${node.name}: Failed to parse x-mesh-extension header: [${headerData}]\ncause: ${err.stack}\n`)
+        err2 = new errors.InternalError(`internal gRPC error at node ${node.name}: Failed to parse x-mesh-extension header: [${headerData}]\ncause: ${err.stack}\n`)
         err2.cause = err
         throw err2
 

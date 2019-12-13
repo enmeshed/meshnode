@@ -99,11 +99,13 @@ export class MeshNode extends Node:
       | 'grpc_direct': new GrpcServicePort(this, provider, service, false)
       | 'grpc_mesh': new GrpcServicePort(this, provider, service, true)
       | 'http_mesh': new HttpMeshServicePort(this, provider, service)
-      | else: throw new Error('unrecognized service type ' + service.type)
+      | else:
+        throw new errors.InternalError('unrecognized service type ' + service.type)
   _createClientPort(service) ->
     match service.type:
       | 'grpc_direct': new GrpcClientPort(this, service, false)
       | 'grpc_mesh': new GrpcClientPort(this, service, true)
       | 'kafka': new KafkaClientPort(this, service)
       | 'mysql': new MysqlClientPort(this, service)
-      | else: throw new Error('unrecognized service type ' + service.type)
+      | else:
+        throw new errors.InternalError('unrecognized service type ' + service.type)

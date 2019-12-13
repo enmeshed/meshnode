@@ -1,6 +1,6 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ClientEnhancer } from '@enmeshed/grpc'
-import { errorClassForCode } from '@enmeshed/errors'
+import { errorClassForCode, errors } from '@enmeshed/errors'
 import * as opentracing from 'opentracing'
 
 import { getContext } from './globalContext'
@@ -81,7 +81,7 @@ export class GrpcClientPort extends NodeLocalPort:
     if clientsForProto[protoName]: return clientsForProto[protoName]
 
     if not (service.protocols?.includes(protoName)):
-      throw new Error(`Service ${service.name} does not support protocol ${protoName}`)
+      throw new errors.UnimplementedError(`Service ${service.name} does not support protocol ${protoName}`)
 
     // Obtain protocol definition
     { protos } = node
@@ -94,7 +94,7 @@ export class GrpcClientPort extends NodeLocalPort:
       `http://127.0.0.1:${node.ports.outgoing_proxy}/grpc/${service.name}`
     else:
       if not service.provider:
-        throw new Error(`Direct grpc service ${service.name} does not have a provider.`)
+        throw new errors.UnimplementedError(`Direct grpc service ${service.name} does not have a provider.`)
       `${service.provider.dns}:${service.port}`
 
     baseClient = def.createClient(url)
