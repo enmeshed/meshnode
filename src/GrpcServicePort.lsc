@@ -1,5 +1,6 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ServerEnhancer } from '@enmeshed/grpc'
+import { CommonError } from '@enmeshed/errors'
 import * as opentracing from "opentracing"
 
 import { createContext, getNode } from './globalContext'
@@ -11,9 +12,30 @@ jaegerClient = require('jaeger-client')
 debug = require('debug')('meshnode:grpc')
 
 class TracingServerEnhancer extends ServerEnhancer:
-  constructor(server, tracer) ->
+  constructor(server, tracer, errorCodec) ->
     super(server)
     this.tracer = tracer
+    this.errorCodec = errorCodec
+
+  // Encode CommonErrors as metadata
+  marshalError(err) ->
+    if not (err instanceof CommonError): return err
+
+    let buf = null
+    try:
+      // XXX: Should we be using production censorship here? Probably should
+      // be a context dependent check.
+      now buf = this.errorCodec.statusToBuffer(this.errorCodec.marshalError(err))
+    catch encodeError:
+      debug('Error while encoding another error for transport', encodeError)
+
+    // Apply fields to the error that will be transferred to the Status
+    // object by grpc.js
+    err.code = err.getStatusCode()
+    err.metadata = new grpc.Metadata()
+    if buf: err.metadata.set('grpc-status-bin', buf)
+
+    err
 
   requestWillBegin(requestContext): void ->
     super.requestWillBegin(requestContext)
@@ -116,15 +138,19 @@ export class GrpcServicePort extends NodeLocalPort:
 
       now port = this.node.ports.host_base + portIndex
 
-    // Load protobufs
-    this.node.protos.load()
+    // Dynamically load protobufs definitions required for this service
+    { protos } = this.node
+    <- protos.findAll(...protocols)
 
     baseServer = new grpc.Server()
-    enhServer = new TracingServerEnhancer(baseServer, this.tracer)
+    enhServer = new TracingServerEnhancer(baseServer, this.tracer, this.node.errorCodec)
     this.server = enhServer
 
     for key svcName, val bindings in this.grpcBindings:
-      enhServer.addService(this.node.protos.service(svcName), bindings)
+      svcDef = protos.lookup(svcName)
+      if not svcDef:
+        throw new Error(`GrpcMeshServicePort.start(): service ${svcName} could not be resolved by dynamic loader.`)
+      enhServer.addService(svcDef.methods, bindings)
 
     <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())
     enhServer.start()

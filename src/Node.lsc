@@ -1,5 +1,7 @@
 import { Node } from '@enmeshed/mesh-reflection'
-import { Protocols } from '@enmeshed/grpc'
+import { DynamicProtocols } from '@enmeshed/grpc'
+import { installGlobalProtocol } from '@enmeshed/protobuf'
+import { errors, ProtobufMarshal } from '@enmeshed/errors'
 
 import { HttpMeshServicePort } from './HttpServicePort'
 import { GrpcServicePort } from './GrpcServicePort'
@@ -10,14 +12,16 @@ import { createContext } from './globalContext'
 import { ExtensionHeader } from './ExtensionHeader'
 
 import os from 'os'
+import path from 'path'
 
 debug = require('debug')('meshnode')
 
-rint(max) ->
-  Math.floor(Math.random() * Math.floor(max))
+// Install common protocols related to marshalling and unmarshalling
+// error objects into the global Protobuf namespace.
+ProtobufMarshal.installProtos(installGlobalProtocol)
 
 export class MeshNode extends Node:
-  protos = new Protocols()
+  protos = new DynamicProtocols()
   ports = {
     incoming_proxy: 4000
     outgoing_proxy: 4001
@@ -35,8 +39,17 @@ export class MeshNode extends Node:
     ctx = createContext()
     ctx.node = this
 
+    // Add default protobuf include path, which is the working directory provided
+    // to the app at startup
+    this.protos.setProtoPath(path.resolve(this.getConfigPath(), 'protocols'))
+
+    this.errorCodec = new ProtobufMarshal(this.protos)
+
     this.computeNodeName()
     this.installNodeShutdownHooks()
+
+  debug(...args): void ->
+    debug(...args)
 
   computeNodeName(): void ->
     this.name = os.hostname()
@@ -47,6 +60,9 @@ export class MeshNode extends Node:
 
   getConfig(configId): string ->
     process.env[configId]
+
+  getConfigPath(): string ->
+    process.argv[2] or process.cwd()
 
   createExtensionHeader() ->
     new ExtensionHeader()

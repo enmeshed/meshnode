@@ -1,13 +1,48 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ClientEnhancer } from '@enmeshed/grpc'
+import { errorClassForCode } from '@enmeshed/errors'
 import * as opentracing from 'opentracing'
 
 import { getContext } from './globalContext'
 
 debug = require('debug')('meshnode:grpc')
 
+decodeErrorFromGrpcMetadata(metadata, codec) ->
+  if not metadata: return null
+  buf = metadata.get('grpc-status-bin')
+  if not buf: return null
+  codec.unmarshalError(buf)
+
 // Append OpenTracing and extension header data to grpc calls
 class TracingClientEnhancer extends ClientEnhancer:
+  constructor(client, errorCodec) ->
+    super(client)
+    this.errorCodec = errorCodec
+
+  // Translate an error object from the remote to a CommonError.
+  unmarshalError(err) ->
+    try:
+      // If the error came from the remote, it has {code, details, metadata}
+      // Check metadata for a serialized error object first.
+      if err.metadata:
+        nextErr = decodeErrorFromGrpcMetadata(err.metadata, this.errorCodec)
+        if nextErr: return nextErr
+
+      // Try to make a CommonError using the grpc status code.
+      if err.code:
+        clazz = errorClassForCode(err.code)
+        if clazz:
+          nextErr = new clazz()
+          nextErr.message = err.message or err.details
+          return nextErr
+
+      // Otherwise just return the regular error
+      return err
+
+    catch unmarshallingError:
+      debug('error while unmarshalling remote error', unmarshallingError, '\n----\nremote error was originally', err)
+      return err
+
   requestWillBegin(requestContext): void ->
     super.requestWillBegin(requestContext)
 
@@ -31,7 +66,7 @@ class TracingClientEnhancer extends ClientEnhancer:
     for key k, val v in headersCarrier:
       metadata.set(k, v)
 
-    console.log("client.requestWillBegin: new grpc metadata is", metadata)
+    debug("client.requestWillBegin: new grpc metadata is", metadata)
 
 export class GrpcClientPort extends NodeLocalPort:
   clientsForProto = {}
@@ -41,17 +76,18 @@ export class GrpcClientPort extends NodeLocalPort:
     this.service = service
     this.isMesh = isMesh
 
-  clientForProtocol(protoName) ->
+  clientForProtocol(protoName) -/>
     { node, service, clientsForProto, isMesh } = this
     if clientsForProto[protoName]: return clientsForProto[protoName]
 
     if not (service.protocols?.includes(protoName)):
       throw new Error(`Service ${service.name} does not support protocol ${protoName}`)
 
+    // Obtain protocol definition
     { protos } = node
-    protos.load()
+    def <- protos.definition(protoName)
 
-    // Override service url for test harness
+    // Obtain service target URL
     url = if this.node.TEST_URL_OVERRIDE:
       this.node.TEST_URL_OVERRIDE
     elif isMesh:
@@ -61,8 +97,8 @@ export class GrpcClientPort extends NodeLocalPort:
         throw new Error(`Direct grpc service ${service.name} does not have a provider.`)
       `${service.provider.dns}:${service.port}`
 
-    baseClient = protos.client(protoName, url)
-    enhancedClient = new TracingClientEnhancer(baseClient)
+    baseClient = def.createClient(url)
+    enhancedClient = new TracingClientEnhancer(baseClient, node.errorCodec)
     clientsForProto[protoName] = enhancedClient
 
     enhancedClient

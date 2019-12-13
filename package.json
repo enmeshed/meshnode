@@ -23,9 +23,10 @@
     "lint:fix": "eslint --fix --ext .js,.lsc src"
   },
   "dependencies": {
-    "@enmeshed/mesh-reflection": "^0.2.0",
-    "@enmeshed/mesh-reflection-file-watcher": "^0.1.4",
-    "@enmeshed/grpc": "^0.1.10",
+    "@enmeshed/mesh-reflection": "^0.2.1",
+    "@enmeshed/mesh-reflection-file-watcher": "^0.2.0",
+    "@enmeshed/grpc": "^0.2.1",
+    "@enmeshed/errors": "^0.2.0",
     "debug": "^4.1.1",
     "express": "^4.17.1",
     "cookie-parser": "^1.4.4",
