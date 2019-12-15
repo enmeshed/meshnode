@@ -1,11 +1,12 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
-import { errors } from '@enmeshed/errors'
+import { CommonError, errors, PlainObjectMarshal } from '@enmeshed/errors'
 import * as opentracing from "opentracing"
 import url from 'url'
 import path from 'path'
 import { createContext, getNode } from './globalContext'
 import { enumerateWebpackRoutes } from './webpackRouteEnumerator'
 import { ExtensionHeader } from './ExtensionHeader'
+import { log } from './logging/logging'
 
 http = require('http')
 express = require('express')
@@ -45,8 +46,8 @@ createTracingMiddleware(tracer) ->
     // finalize the span when the response is completed
     finishSpan = () => {
       span.logEvent("request_finished")
-      // Route matching often happens after the middleware is run. Try changing the operation name
-      // to the route matcher.
+      // // Route matching often happens after the middleware is run. Try changing the operation name
+      // // to the route matcher.
       // opName = (req.route && req.route.path) || pathname
       // span.setOperationName(opName)
       span.setTag("http.status_code", res.statusCode)
@@ -54,11 +55,21 @@ createTracingMiddleware(tracer) ->
         span.setTag("error", true)
         span.setTag("sampling.priority", 1)
         if res.error:
-          span.log({
-            event: "error"
-            "error.message": res.error.stack or res.error.message
-            error: res.error
-          })
+          error = res.error
+          // Log error event
+          logData = { event: "error", "error.message": error.message }
+          if error instanceof CommonError:
+            marshalledError = (new PlainObjectMarshal()).marshalError(error)
+            logData["error.dump"] = error.dump()
+            logData["error.status"] = error.getStatusName()
+            logData["error.retry"] = if error.retry: true else: false
+            logData["error.class"] = marshalledError.errorClass
+            logData["error.object"] = marshalledError
+          else:
+            logData["error.dump"] = error.stack
+          log.error(error.message, logData)
+        else:
+          log.error("Unknown http request error")
       }
       span.finish()
     }
@@ -144,7 +155,7 @@ export class HttpMeshServicePort extends NodeLocalPort:
     // Add final error handler
     app.use(this.finalErrorHandler.bind(this))
     this.server = http.createServer(app)
-    debug('starting http server for', this.service.name, 'on port', port)
+    log.info(`starting http server for ${this.service.name} on port ${port}`)
     this.server.listen(port, (err) =>
       if err:
         this.server = null
@@ -156,7 +167,7 @@ export class HttpMeshServicePort extends NodeLocalPort:
     def.promise
 
   shutdown() ->
-    debug('stopping http server for', this.service.name)
+    log.info(`stopping http server for ${this.service.name}`)
     server = this.server
 
     if server:

@@ -3,11 +3,15 @@ import { DynamicProtocols } from '@enmeshed/grpc'
 import { installGlobalProtocol } from '@enmeshed/protobuf'
 import { errors, ProtobufMarshal } from '@enmeshed/errors'
 
+import { log, addLoggingMiddleware } from './logging/logging'
+import { StdoutLogWriter } from './logging/stdoutLogging'
+import { OpenTracingLogWriter } from './logging/otLogging'
 import { HttpMeshServicePort } from './HttpServicePort'
 import { GrpcServicePort } from './GrpcServicePort'
 import { GrpcClientPort } from './GrpcClientPort'
 import { KafkaClientPort } from './KafkaClientPort'
 import { MysqlClientPort } from './MysqlClientPort'
+import { RedisClientPort } from './RedisClientPort'
 import { createContext } from './globalContext'
 import { ExtensionHeader } from './ExtensionHeader'
 
@@ -39,6 +43,11 @@ export class MeshNode extends Node:
     ctx = createContext()
     ctx.node = this
 
+    // Setup logging
+    addLoggingMiddleware(new StdoutLogWriter())
+    addLoggingMiddleware(new OpenTracingLogWriter())
+    log.info("Logging subsystem enabled")
+
     // Add default protobuf include path, which is the working directory provided
     // to the app at startup
     this.protos.setProtoPath(path.resolve(this.getConfigPath(), 'protocols'))
@@ -53,7 +62,7 @@ export class MeshNode extends Node:
 
   computeNodeName(): void ->
     this.name = os.hostname()
-    debug('Computed node name:', this.name)
+    log.debug('Computed node name:', this.name)
 
   getInjectedSecret(secretId): string ->
     process.env[secretId]
@@ -73,11 +82,11 @@ export class MeshNode extends Node:
     for elem type in ['unhandledRejection', 'uncaughtException']:
       process.on(type, (err, origin) -/>
         try:
-          debug('process.on', type, err, origin)
+          log.fatal(`node shutting down: ${type}`, { err, origin })
           <- self.stop()
           process.exit(1)
         catch err:
-          debug('graceless shutdown', type, err)
+          log.fatal('graceless shutdown:', type, { err })
           process.exit(128)
       )
 
@@ -85,10 +94,11 @@ export class MeshNode extends Node:
       process.once(type, -/>
         try:
           debug('process.on', type)
+          log.warn(`node quitting due to signal: ${type}`)
           <- self.stop()
           process.exit(0)
         catch err:
-          debug('graceless shutdown', type, err)
+          log.fatal('graceless shutdown:', type, err)
           process.exit(128)
       )
 
@@ -107,5 +117,6 @@ export class MeshNode extends Node:
       | 'grpc_mesh': new GrpcClientPort(this, service, true)
       | 'kafka': new KafkaClientPort(this, service)
       | 'mysql': new MysqlClientPort(this, service)
+      | 'redis': new RedisClientPort(this, service)
       | else:
         throw new errors.InternalError('unrecognized service type ' + service.type)

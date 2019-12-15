@@ -1,6 +1,7 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ServerEnhancer } from '@enmeshed/grpc'
-import { CommonError, errors } from '@enmeshed/errors'
+import { CommonError, errors, PlainObjectMarshal } from '@enmeshed/errors'
+import { log } from './logging/logging'
 import * as opentracing from "opentracing"
 
 import { createContext, getNode } from './globalContext'
@@ -27,7 +28,7 @@ class TracingServerEnhancer extends ServerEnhancer:
       // be a context dependent check.
       now buf = this.errorCodec.statusToBuffer(this.errorCodec.marshalError(err))
     catch encodeError:
-      debug('Error while encoding another error for transport', encodeError)
+      log.error('Error while encoding another error for transport', { originalError: err, encodeError })
 
     // Apply fields to the error that will be transferred to the Status
     // object by grpc.js
@@ -46,7 +47,6 @@ class TracingServerEnhancer extends ServerEnhancer:
     { metadata, methodName } = requestContext
 
     headerMap = (metadata?.getMap() or {})
-    debug("TracingServerEnhancer.requestWillBegin:", methodName, "headerMap", headerMap)
 
     ///////////// extension header
     extensionHeader = ExtensionHeader.setFromHeaderData(headerMap)
@@ -55,38 +55,46 @@ class TracingServerEnhancer extends ServerEnhancer:
     ///////////// OpenTracing context
     wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, headerMap)
     span = if wireCtx:
-      debug("TracingServerEnhancer.requestWillBegin:", methodName, "creating child span for parent", wireCtx?._spanIdStr)
-      tracer.startSpan(requestContext.methodName, {childOf: wireCtx})
+      tracer.startSpan(methodName, {childOf: wireCtx})
     else:
-      debug("TracingServerEnhancer.requestWillBegin:", methodName, "creating free span")
-      tracer.startSpan(requestContext.methodName)
+      tracer.startSpan(methodName)
     globalContext.openTracingSpan = span
     requestContext.openTracingSpan = span
 
     span.setTag("span.kind", "server")
+    span.setTag("component", "grpc")
     span.log({event: "request_received"})
 
   requestDidEnd(requestContext): void ->
     super.requestDidEnd(requestContext)
 
     { error, methodName, result } = requestContext
-    if error:
-      debug("TracingServerEnhancer.requestDidEnd:", methodName, "error:", error)
-    elif result:
-      debug("TracingServerEnhancer.requestDidEnd:", methodName, "result:", result)
+    // if error:
+    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "error:", error)
+    // elif result:
+    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "result:", result)
 
     span = requestContext.openTracingSpan
     if not span: return
 
     if error:
-      // TODO: not-found errors are OK and do not need to be logged.
+      // Flag span as erroneous
       span.setTag("error", true)
       span.setTag("sampling.priority", 1)
-      span.log({
-        event: "error"
-        "error.message": error.stack or error.message
-        error: error
-      })
+
+      // Log error event
+      logData = { event: "error", "error.message": error.message }
+      if error instanceof CommonError:
+        marshalledError = (new PlainObjectMarshal()).marshalError(error)
+        logData["error.dump"] = error.dump()
+        logData["error.status"] = error.getStatusName()
+        logData["error.retry"] = if error.retry: true else: false
+        logData["error.class"] = marshalledError.errorClass
+        logData["error.object"] = marshalledError
+      else:
+        logData["error.dump"] = error.stack
+
+      log.error(error.message, logData)
     else:
       span.log({event: "request_finished"})
 
@@ -154,10 +162,10 @@ export class GrpcServicePort extends NodeLocalPort:
 
     <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())
     enhServer.start()
-    debug('started gRPC server for', this.service.name, 'on port', port)
+    log.info(`started gRPC server for ${this.service.name} on port ${port}`)
 
   shutdown(): void -/>
-    debug('stopping gRPC server for', this.service.name)
+    log.info(`stopping gRPC server for ${this.service.name}`)
     if this.server:
       <- this.server.shutdown()
       this.server = null

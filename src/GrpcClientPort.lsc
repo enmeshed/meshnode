@@ -1,6 +1,7 @@
 import { NodeLocalPort } from '@enmeshed/mesh-reflection'
 import { ClientEnhancer } from '@enmeshed/grpc'
 import { errorClassForCode, errors } from '@enmeshed/errors'
+import { log } from './logging/logging'
 import * as opentracing from 'opentracing'
 
 import { getContext } from './globalContext'
@@ -40,7 +41,7 @@ class TracingClientEnhancer extends ClientEnhancer:
       return err
 
     catch unmarshallingError:
-      debug('error while unmarshalling remote error', unmarshallingError, '\n----\nremote error was originally', err)
+      log.error('error while unmarshalling remote error', { unmarshallingError, originalError: err })
       return err
 
   requestWillBegin(requestContext): void ->
@@ -66,7 +67,6 @@ class TracingClientEnhancer extends ClientEnhancer:
     for key k, val v in headersCarrier:
       metadata.set(k, v)
 
-    debug("client.requestWillBegin: new grpc metadata is", metadata)
 
 export class GrpcClientPort extends NodeLocalPort:
   clientsForProto = {}
@@ -115,6 +115,6 @@ export class GrpcClientPort extends NodeLocalPort:
     return
 
   shutdown() -/>
-    debug('stopping gRPC client for', this.service.name)
+    log.info('stopping gRPC client for', this.service.name)
     this.clientsForProto = {}
     return

@@ -1,0 +1,103 @@
+import { getContext } from '../globalContext'
+
+levelNameToNumber = {
+  trace: 10
+  debug: 20
+  info: 30
+  warn: 40
+  error: 50
+  fatal: 60
+}
+
+levelNumberToName = {...for key k, val v in levelNameToNumber: {[v]: k}}
+
+export class LogMiddleware:
+  static levelNameToNumber(name) ->
+    rst = levelNameToNumber[name]
+    if rst~looseNotEq(null): rst else: 30
+
+  static levelNumberToName(number) ->
+    rst = levelNumberToName[number]
+    if rst: rst else: "info"
+
+  constructor(handler) ->
+    if typeof(handler) == 'function':
+      this.logEntry = handler.bind(this)
+
+  // Called for each log entry the middleware sees.
+  logEntry(data): void ->
+    return
+
+export class LogWriter extends LogMiddleware:
+  level = 0
+
+  setLevel(lv): LogWriter ->
+    if typeof(lv) == 'number':
+      this.level = lv
+    else:
+      this.level = LogMiddleware.levelNameToNumber(lv)
+    this
+
+
+  // Filter events to be logged.
+  filter(data): boolean ->
+    if data.level < this.level:
+      false
+    else:
+      true
+
+  // Write a log event that's passed the filter.
+  writeToLog(data): Promise<void> ->
+    Promise.resolve(undefined)
+
+  // Log information, ignoring failures.
+  logEntry(data): void ->
+    if this.filter(data):
+      this.writeToLog(data)
+        .catch((err) ->
+          // eslint-disable-next-line no-console
+          console.error("Error while writing to log", err)
+        )
+
+// Add logging middleware that applies only to the current context and
+// all subcontexts.
+export addLoggingMiddleware(middleware, prepend) ->
+  ctx = getContext()
+  if ctx.loggingMiddleware:
+    if prepend:
+      ctx.loggingMiddleware = [middleware].concat(ctx.loggingMiddleware)
+    else:
+      ctx.loggingMiddleware = ctx.loggingMiddleware.concat([middleware])
+  else:
+    ctx.loggingMiddleware = [middleware]
+
+getLoggingMiddleware() ->
+  getContext()?.loggingMiddleware
+
+// Variadic log function
+export vaLog(level, ...args): void ->
+  middlewareChain = getLoggingMiddleware()
+  // Nothing to do.
+  if not middlewareChain or (middlewareChain.length == 0): return
+
+  data = { level, time: Date.now() }
+
+  for elem arg in args:
+    if typeof(arg) == 'string':
+      if not data.message: data.message = arg else: data.message += ' ' + arg
+    elif typeof(arg) == 'object':
+      Object.assign(data, arg)
+
+  for elem middleware in middlewareChain:
+    middleware.logEntry(data)
+
+log = {
+  trace(...args): void -> vaLog(10, ...args)
+  debug(...args): void -> vaLog(20, ...args)
+  info(...args): void -> vaLog(30, ...args)
+  warn(...args): void -> vaLog(40, ...args)
+  error(...args): void -> vaLog(50, ...args)
+  fatal(...args): void -> vaLog(60, ...args)
+}
+
+export { log }

@@ -1,4 +1,5 @@
 import { getNode, getContext } from './globalContext'
+import { log } from './logging/logging'
 import { Metadata } from '@enmeshed/grpc'
 import { errors } from '@enmeshed/errors'
 
@@ -58,6 +59,7 @@ export class ExtensionHeader:
 
   elevate(actor, reason): void ->
     // XXX: Audit-log all elevations
+    log.info('request elevated', { event: 'elevated', actor, reason })
     this.endorse('elevated', { actor, reason })
 
   isElevated(): boolean ->

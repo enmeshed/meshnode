@@ -1,0 +1,48 @@
+import { NodeLocalPort } from '@enmeshed/mesh-reflection'
+import { errors } from '@enmeshed/errors'
+import { log } from './logging/logging'
+
+Redis = require('ioredis')
+
+export class RedisClientPort extends NodeLocalPort:
+  clients = []
+
+  constructor(node, service) ->
+    super(node)
+    this.service = service
+
+  shutdown() -/>
+    log.info(`stopping redis client for ${this.service.name}`)
+
+    lastClients = this.clients
+    this.clients = []
+
+    <- [...for elem client in lastClients: [client.quit()]]
+
+    return
+
+  createClient() -/>
+    client = new Redis(this.redisConf)
+    this.clients.push(client)
+    client
+
+  getRedisOpts() -> this.redisConf
+
+  destroyClient(client): void -/>
+    <- client.quit()
+    this.clients = this.clients.filter(x -> x != client)
+
+  start() -/>
+    { node, service } = this
+    provider <- service.awaitProvider(30000)
+
+    this.redisConf = {
+      host: provider.host
+      port: provider.port
+      db: provider.database
+      ...if provider.password: { password: provider.password }
+    }
+
+  reconfigure(provider, service) ->
+    // Reconfigure if mysql args change
+    return
