@@ -1,0 +1,12 @@
+import { Container, toProvider } from '@enmeshed/alpha'
+import { log } from '../logging/Logging'
+
+Container.provide(toProvider({
+  name: "log"
+
+  injectDependencies(deps, setupContext) -/>
+    log
+
+  init(rsrc) -/>
+    Container.retain(rsrc)
+}))

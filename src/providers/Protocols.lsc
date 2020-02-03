@@ -1,0 +1,22 @@
+import { Container, toProvider } from '@enmeshed/alpha'
+import { DynamicProtocols } from '@enmeshed/grpc'
+import path from 'path'
+
+import './Config'
+
+Container.provide(toProvider({
+  name: "protocols"
+
+  dependencies: {
+    "Config": "config"
+  }
+
+  init(): void -/>
+    Container.retain(this)
+
+  injectDependencies(deps) -/>
+    { Config } = deps
+    protos = new DynamicProtocols()
+    protos.setProtoPath(path.resolve(Config.getConfigPath(), 'protocols'))
+    protos
+}))

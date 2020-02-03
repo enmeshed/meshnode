@@ -1,0 +1,66 @@
+import { ClientEnhancer as BaseClientEnhancer } from '@enmeshed/grpc'
+import { errorClassForCode } from '@enmeshed/errors'
+
+import * as opentracing from 'opentracing'
+
+import { getContext } from '../../../globalContext'
+
+decodeErrorFromGrpcMetadata(metadata, codec) ->
+  if not metadata: return null
+  buf = metadata.get('grpc-status-bin')
+  if not buf: return null
+  codec.unmarshalError(buf)
+
+// Append OpenTracing and extension header data to grpc calls
+export class ClientEnhancer extends BaseClientEnhancer:
+  constructor(client, errorCodec, ExtensionHeader) ->
+    super(client)
+    this.errorCodec = errorCodec
+    this.ExtensionHeader = ExtensionHeader
+
+  // Translate an error object from the remote to a CommonError.
+  unmarshalError(err) ->
+    try:
+      // If the error came from the remote, it has {code, details, metadata}
+      // Check metadata for a serialized error object first.
+      if err.metadata:
+        nextErr = decodeErrorFromGrpcMetadata(err.metadata, this.errorCodec)
+        if nextErr: return nextErr
+
+      // Try to make a CommonError using the grpc status code.
+      if err.code:
+        clazz = errorClassForCode(err.code)
+        if clazz:
+          nextErr = new clazz()
+          nextErr.message = err.message or err.details
+          return nextErr
+
+      // Otherwise just return the regular error
+      return err
+
+    catch unmarshallingError:
+      log.error('error while unmarshalling remote error', { unmarshallingError, originalError: err })
+      return err
+
+  requestWillBegin(requestContext): void ->
+    super.requestWillBegin(requestContext)
+
+    { metadata } = requestContext
+    globalContext = getContext()
+    headersCarrier = {}
+
+    // Inject opentracing data
+    span = globalContext.openTracingSpan
+    if span:
+      tracer = span.tracer()
+      tracer.inject(span, opentracing.FORMAT_HTTP_HEADERS, headersCarrier)
+
+    // Inject extension header
+    extensionHeader = globalContext.extensionHeader
+    if extensionHeader and (metadata.get('x-mesh-extension').length == 0):
+      headerData = extensionHeader.toHeaderData()
+      Object.assign(headersCarrier, headerData)
+
+    // Update request headers
+    for key k, val v in headersCarrier:
+      metadata.set(k, v)

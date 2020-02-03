@@ -1,0 +1,69 @@
+import { partition, groupBy, startsWith } from 'lodash'
+import { thisAsyncMiddleware } from './ExpressAsyncMiddleware'
+
+import path from 'path'
+
+express = require('express')
+debug = require('debug')('meshnode')
+
+defaultOpts = {
+  unresolvedExtensionRegexp: /\.(lsc|js)$/
+  basePath: '/'
+}
+
+// Load routes from a webpack require.context, making the route structure
+// mirror the on-disk structure of the files.
+export loadRoutesFromWebpackContext(context, router, opts = {}): void ->
+  now opts = Object.assign({}, defaultOpts, opts)
+  { unresolvedExtensionRegexp, basePath } = opts
+
+  // Narrow context keys down to only those entries that could be resolved
+  keys = context.keys()
+  resolvedKeys = keys.filter(x -> not unresolvedExtensionRegexp.test(x))
+
+  // Split require paths
+  splitKeys = resolvedKeys.map(key ->
+    splitKey = key.split(path.sep)
+    splitKey.splice(0, 1)
+    { requirePath: key, segments: splitKey }
+  )
+
+  debug('loadRoutesFromWebpackContext: loader data:', splitKeys)
+  enumerateRoutes(basePath, splitKeys, context, router)
+
+// Recursive portion of the route-enumeration algorithm
+export enumerateRoutes(basePath, split, req, router): void ->
+  router.async = thisAsyncMiddleware
+  // Determine which routes are in the current directory and which are in
+  // subdirectories.
+  [ local, subdirs ] = split~partition(x -> x.segments.length == 1)
+  // Group the contents of subdirectories by directory name
+  groupedSubdirs = subdirs~groupBy(x -> x.segments[0])
+  // Collate local modules by key.
+  localByKey = {...for elem e in local:
+    {[e.segments[0]]: e}
+  }
+
+  before = localByKey['_before']?.requirePath
+  after = localByKey['_after']?.requirePath
+
+  if before:
+    (req(before).default)(router, basePath)
+
+  // Load local routes
+  for key k, val v in localByKey:
+    if not k~startsWith('_'):
+      debug("enumerateRoutes: requiring", v.requirePath)
+      (req(v.requirePath).default)(router, basePath)
+
+  // Load subdirs
+  for key k, val v in groupedSubdirs:
+    nextRouter = express.Router()
+    nextPath = `/${k}`
+    router.use(nextPath, nextRouter)
+    // Remove leading segment
+    for elem e in v: e.segments.splice(0, 1)
+    enumerateRoutes(nextPath, v, req, nextRouter)
+
+  if after:
+    (req(after).default)(router, basePath)

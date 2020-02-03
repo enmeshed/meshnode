@@ -1,0 +1,109 @@
+import { Provider, Container } from '@enmeshed/alpha'
+import { ReflectionDomain, awaitEnvironment, awaitResource } from '@enmeshed/mesh-reflection'
+import { errors } from '@enmeshed/errors'
+
+import os from 'os'
+
+import { Config } from './Config'
+import './Protocols'
+import './Log'
+
+// Default port configuration
+// XXX: probably shouldn't be here
+Config.inject('ports', {
+  incoming_proxy: 4000
+  outgoing_proxy: 4001
+  host_base: 40000
+})
+
+debug = require('debug')('@enmeshed/meshnode')
+
+class Node extends Provider:
+  static providerName = "node"
+  static dependencies = {
+    "config": "config"
+    "protos": "protocols"
+    "log": "log"
+    "dataSource": "node.reflectionDataSource"
+  }
+
+  // Info corresponding to mesh-reflection data
+  domain = null
+  environment = null
+  providerName = null // Am I a named provider?
+  provider = null
+
+  init() -/>
+    Container.retain(this)
+    this.installNodeShutdownHooks()
+
+    this.domain = new ReflectionDomain()
+    this.domain.start(this.dataSource)
+
+    { config, domain } = this
+    environmentName = config.required('mesh_environment')
+    providerName = config.optional('mesh_provider')
+
+    log.debug("Node.init(): awaiting environment", environmentName)
+    this.environment <- awaitEnvironment(domain, environmentName, 60000)
+    if providerName:
+      this.providerName = providerName
+      log.debug('Node.init(): awaiting provider', providerName)
+      this.provider <- awaitResource(this.environment, 'provider', providerName, 30000)
+    else:
+      log.warn('Node.init(): node has no provider!')
+
+    this.name <- this.computeName()
+    log.debug('Node.init(): node name', this.name)
+
+    log.info('Node.init(): node ready')
+
+  computeName() -/>
+    os.hostname()
+
+  getService(name) -/>
+    { environment } = this
+    service = environment.getService(name)
+    if not service:
+      throw new errors.InternalError(`No service named ${name} could be found in mesh metadata.`)
+    service
+
+  getProvidedService(name) -/>
+    { provider, environment } = this
+    service = environment.getService(name)
+    if (not provider) or (not provider.provides(service)):
+      throw new errors.InternalError(`This Node is not listed as a Provider for ${name}`)
+    service
+
+  // Try to gracefully handle node js shutdowns.
+  installNodeShutdownHooks(): void ->
+    self = this
+    log.info("installing node shutdown hooks")
+
+    for elem type in ['unhandledRejection', 'uncaughtException']:
+      process.on(type, (err, origin) -/>
+        try:
+          debug('process.on', type, err, origin)
+          self.log.fatal(`node shutting down: ${type}`, { err, origin })
+          <- Container.clear()
+          process.exit(1)
+        catch err:
+          debug('graceless shutdown', err)
+          self.log.fatal('graceless shutdown:', type, { err })
+          process.exit(128)
+      )
+
+    for elem type in ['SIGTERM', 'SIGINT', 'SIGUSR2']:
+      process.once(type, -/>
+        try:
+          debug('process.on', type)
+          self.log.warn(`node quitting due to signal: ${type}`)
+          <- Container.clear()
+          process.exit(0)
+        catch err:
+          debug('graceless shutdown', err)
+          self.log.fatal('graceless shutdown:', type, err)
+          process.exit(128)
+      )
+
+Container.provide(Node)

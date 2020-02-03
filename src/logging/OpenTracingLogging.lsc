@@ -1,6 +1,5 @@
 // Log to OpenTracing when a trace is active.
-import { LogWriter, LogMiddleware } from './logging'
-import { getContext } from '../globalContext'
+import { LogWriter } from './Logging'
 
 export class OpenTracingLogWriter extends LogWriter:
   writeToLog(data): void ->
@@ -10,7 +9,6 @@ export class OpenTracingLogWriter extends LogWriter:
 
     rec = Object.assign({}, data)
     time = rec.time
-    rec.level = LogMiddleware.levelNumberToName(rec.level)
     delete rec.time
 
     span.log(rec, time)

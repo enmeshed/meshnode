@@ -1,0 +1,10 @@
+import { Container } from '@enmeshed/alpha'
+import { GenericServiceManager } from '../GenericServiceManager'
+import "./ServicePort"
+
+class HttpServiceManager extends GenericServiceManager:
+  static providerName = "http.service.manager"
+  serviceTypes = ['http_mesh', 'http_direct']
+  portProviderName = "http.service.port"
+
+Container.provide(HttpServiceManager)

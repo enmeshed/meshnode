@@ -1,0 +1,38 @@
+import { errors } from '@enmeshed/errors'
+import { Provider, Dependency } from '@enmeshed/alpha'
+
+{ Client } = require('@elastic/elasticsearch')
+
+export class ElasticsearchClientPort extends Provider:
+  static providerName = "elasticsearch.client.port"
+  static dependencies = {
+    "mgr": Dependency.weak("elasticsearch.client.manager")
+    "node": "node"
+    "Config": "config"
+  }
+
+  static injectDependencies(dependencyMap, setupContext) -/>
+    { mgr } = dependencyMap
+    setupContext._mgr = mgr // XXX
+    serviceName = setupContext.getNameArg()
+    if not serviceName:
+      throw new errors.InvalidArgumentError("serviceName", "missing")
+
+    service <- mgr.awaitService(serviceName)
+    provider = service.getProvider()
+
+    log.trace(`starting client for ${service.type} service: ${service.name}`)
+
+    opts = {
+      nodes: provider.nodes
+      ...if provider.auth: {auth: provider.auth}
+      sniffOnStart: true
+    }
+    client = new Client(opts)
+    client
+
+  static init(resource, setupContext): void -/>
+    setupContext._mgr.registerPort(resource)
+
+  static destroy(resource): void -/>
+    <- resource.close()

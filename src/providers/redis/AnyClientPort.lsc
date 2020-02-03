@@ -1,0 +1,9 @@
+// Attempt to connect to any Redis service.
+import { AnyClientPort } from '../AnyClientPort'
+import './ClientManager'
+
+export class AnyRedisClientPort extends AnyClientPort:
+  static providerName = "redis"
+  static dependencies = {
+    "mgr": "redis.client.manager"
+  }

@@ -1,0 +1,83 @@
+import { Container, Dependencies } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+
+import { GenericServicePort } from '../GenericServicePort'
+import { createFirstMiddleware, createLastErrorHandler } from './util/Middleware'
+
+import "../ExtensionHeader"
+
+jaegerClient = require('jaeger-client')
+express = require('express')
+http = require('http')
+deferred = require('p-defer')
+
+class HttpServicePort extends GenericServicePort:
+  static providerName = "http.service.port"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "mgr": "http.service.manager"
+    "ExtensionHeader": "extensionHeader"
+  })
+
+  createApp(): void ->
+    // Create Jaeger tracer for this service
+    this.tracer = jaegerClient.initTracer(
+      {
+        serviceName: this.service.name
+      }
+    )
+
+    app = express()
+    // Assume service is behind some proxy layer.
+    app.enable('trust proxy')
+    // Disallow fingerprinting
+    app.disable('x-powered-by')
+    // Enable first-crack middleware
+    app.use(createFirstMiddleware(this.tracer, this.ExtensionHeader))
+
+    this.app = app
+
+  startService(): void -/>
+    { Config, service, bindings } = this
+    { provider } = this.node
+
+    // Determine port number
+    portIndex = provider.getServiceOrdinal(service)
+    if portIndex == null:
+      throw new errors.InternalError(`HttpServicePort: port not found`)
+    port = Config.required("ports").host_base + portIndex
+
+    // Setup express app
+    this.createApp()
+    <- bindings(this.app)
+    this.app.use(createLastErrorHandler(this))
+
+    // Setup httpd
+    def = deferred()
+    this.server = http.createServer(this.app)
+    log.info(`starting http server for ${this.service.name} on port ${port}`)
+    this.server.listen(port, (err) =>
+      if err:
+        this.server = null
+        def.reject(err)
+      else:
+        def.resolve()
+    )
+    def.promise
+
+  stopService(): void ->
+    server = this.server
+
+    if server:
+      def = deferred()
+      server.close((err) =>
+        if err:
+          def.reject(err)
+        else:
+          this.server = null
+          def.resolve()
+      )
+      def.promise
+    else:
+      Promise.resolve(undefined)
+
+Container.provide(HttpServicePort)

@@ -1,0 +1,80 @@
+// GenericServiceManager is infrastructure for the provision of multiple
+// types of services. It works by awaiting and enumerating services of
+// the given type, then conjuring a Port for each of them. It also
+// manages the lifecycles of the Ports including retaining them and
+// releasing them at destruction time.
+//
+// It also manages bindings, which are glue between service names and user
+// code to provide the service. The nature of bindings will depend on the
+// specific service. The generic interface provides a Map<string, any>-type
+// structure.
+import { Provider, Container, Resources, Namespace } from '@enmeshed/alpha'
+import "./Node"
+
+deferred = require('p-defer')
+
+export class GenericServiceManager extends Provider:
+  static dependencies = {
+    "node": "node"
+  }
+
+  serviceTypes = []
+  portProviderName: string = "unknown"
+
+  // Generic lifecycle. Should be overwritten in subclass to monitor
+  // specific resources.
+  init(): void ->
+    // Prevent manager resources from being freed until app shutdown.
+    Container.retain(this)
+    Promise.resolve(undefined)
+
+  destroy(): void -/>
+    // Release all cached resources at manager shutdown
+    <- this.ports.clear()
+
+  // Manage lifecycle of all ports we conjure
+  ports = new Resources(true)
+
+  registerPort(port): void ->
+    this.ports.add(port)
+
+  unregisterPort(port): void ->
+    this.ports.evict(port)
+
+  // Manage bindings
+  bindings = {}
+
+  bind(serviceName, val): void ->
+    if not this.bindings[serviceName]:
+      this.bindings[serviceName] = deferred()
+    this.bindings[serviceName].resolve(val)
+
+  awaitBindings(serviceName) ->
+    if not this.bindings[serviceName]:
+      this.bindings[serviceName] = deferred()
+    this.bindings[serviceName].promise
+
+  // Wrap common Node services
+  awaitService(serviceName: string) -/>
+    { environment } = this.node
+    log.trace("locating service", serviceName)
+    environment.getService(serviceName)
+
+  // Automatically conjure ports for all services currently recognized
+  // by this node.
+  autoStart() ->
+    { provider } = this.node
+    if not provider:
+      log.debug("ServiceManager.autoStart(): node has no provider")
+      return Promise.resolve(undefined)
+    log.debug("ServiceManager.autoStart()")
+    serviceSet = provider.getServiceSet()
+    promises = [...for service of serviceSet:
+      if this.serviceTypes.includes(service.type):
+        log.info(`autoloading port for ${service.type} service ${service.name}`)
+        // When the Namespace resolves the port, it will add itself to
+        // our Resources via registerPort, eliminating the need
+        // to retain it here.
+        [Namespace.resolve(`${this.portProviderName}:${service.name}`)]
+    ]
+    Promise.all(promises)

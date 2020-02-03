@@ -1,0 +1,15 @@
+import { Container, Dependencies } from '@enmeshed/alpha'
+import { GenericClientManager } from '../GenericClientManager'
+
+import "./ClientPort"
+
+export class KafkaClientManager extends GenericClientManager:
+  static providerName = "kafka.client.manager"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "protos": "protocols"
+  })
+
+  serviceTypes = ['kafka']
+  portProviderName = "kafka.client.port"
+
+Container.provide(KafkaClientManager)

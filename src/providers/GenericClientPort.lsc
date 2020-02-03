@@ -1,0 +1,43 @@
+// A GenericClientPort represents connections to a single service
+// residing on another Node.
+// in tandem with a ClientManager, it manages the lifecycle of a single
+// consumed service.
+import { Provider } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+
+import './Node'
+
+export class GenericClientPort extends Provider:
+  static dependencies = {
+    "Config": "config"
+    "node": "node"
+    "mgr": "generic.port.requires.a.manager"
+  }
+
+  constructor(deps, context) ->
+    this.computeName(context)
+
+  computeName(context): void ->
+    serviceName = context.getNameArg()
+    if (not serviceName):
+      throw new errors.InvalidArgumentError("serviceName", "missing")
+    this.serviceName = serviceName
+
+  init(): void -/>
+    log.trace(`awaiting service provider for ${this.serviceName}`)
+    service <- this.mgr.awaitService(this.serviceName)
+    this.service = service
+    this.provider = service.getProvider()
+
+    log.trace(`starting client for ${this.service.type} service: ${this.serviceName}`)
+    <- this.startClient()
+
+    this.mgr.registerPort(this)
+
+  destroy(): void -/>
+    log.info(`stopping ${this.service.type} client for ${this.service.name}`)
+    <- this.stopClient()
+    this.mgr.unregisterPort(this)
+
+  startClient(): void -/> return
+  stopClient(): void -/> return

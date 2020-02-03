@@ -1,0 +1,8 @@
+import { toProvider, Container } from '@enmeshed/alpha'
+
+export singletonProvider(name, singleton) ->
+  toProvider({
+    name
+    injectDependencies() -> Promise.resolve(singleton)
+    init(rsrc): void -/> Container.retain(rsrc)
+  })

@@ -1,0 +1,8 @@
+import { AnyClientPort } from '../AnyClientPort'
+import './ClientManager'
+
+export class AnyMysqlClientPort extends AnyClientPort:
+  static providerName = "mysql"
+  static dependencies = {
+    "mgr": "mysql.client.manager"
+  }

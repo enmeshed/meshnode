@@ -1,0 +1,44 @@
+// A GenericServicePort provides a single service for the Node. Working
+// in tandem with a ServiceManager, it manages the lifecycle of a single
+// service.
+import { Provider } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+
+import './Node'
+
+export class GenericServicePort extends Provider:
+  static dependencies = {
+    "Config": "config"
+    "node": "node"
+    "mgr": "generic.port.requires.a.manager"
+  }
+
+  constructor(deps, context) ->
+    this.computeName(context)
+
+  computeName(context): void ->
+    serviceName = context.getNameArg()
+    if (not serviceName):
+      throw new errors.InvalidArgumentError("serviceName", "missing")
+    this.serviceName = serviceName
+
+  init(): void -/>
+    log.trace(`awaiting service ${this.serviceName}`)
+    service <- this.mgr.awaitService(this.serviceName)
+    this.service = service
+    log.trace(`awaiting bindings for ${this.serviceName}`)
+    bindings <- this.mgr.awaitBindings(this.serviceName)
+    this.bindings = bindings
+
+    log.trace(`starting ${this.service.type} service for ${this.serviceName}`)
+    <- this.startService()
+
+    this.mgr.registerPort(this)
+
+  destroy(): void -/>
+    log.info(`stopping ${this.service.type} service for ${this.service.name}`)
+    <- this.stopService()
+    this.mgr.unregisterPort(this)
+
+  startService(): void -/> return
+  stopService(): void -/> return

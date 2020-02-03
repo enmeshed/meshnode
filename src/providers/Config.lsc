@@ -1,0 +1,56 @@
+import { Provider, Container } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+
+fromEnv(key: string) ->
+  upperKey = key.toUpperCase()
+  process.env[upperKey]
+
+strToBool(str: string) ->
+  match str:
+    | '1': true
+    | '0': false
+    | 'true': true
+    | 'false': false
+    | else: !!str
+
+export class Config extends Provider:
+  static providerName = "config"
+
+  static injectedConfigs = {}
+
+  static inject(k, v) ->
+    this.injectedConfigs[k] = v
+
+  init(): void -/>
+    Container.retain(this)
+
+  getConfigPath(): string ->
+    process.argv[2] or process.cwd()
+
+  get(key: string, ty = String) ->
+    value = fromEnv(key) or this.constructor.injectedConfigs[key]
+    if looseEq(value, null): return null
+
+    if ty == String:
+      value.toString()
+    elif ty == Number:
+      rst = Number.parseInt(value)
+      if Number.isNaN(rst): null else: rst
+    elif ty == Boolean:
+      if typeof(value) == 'string': strToBool(value) else: !!value
+    elif ty == Object:
+      if typeof(value) == 'object':
+        value
+      else:
+        JSON.parse(value)
+
+  required(key, ty) ->
+    rst = this.get(key, ty)
+    if rst == null:
+      throw new errors.InvalidArgumentError(key, 'required configuration value is missing')
+    rst
+
+  optional(key, ty) ->
+    this.get(key, ty)
+
+Container.provide(Config)

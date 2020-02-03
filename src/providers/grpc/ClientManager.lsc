@@ -1,0 +1,37 @@
+import { Container, Dependencies } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+import { GenericClientManager } from '../GenericClientManager'
+
+import "./ClientPort"
+
+// The GrpcClientManager caches service ports and evicts them when services
+// in the environment change.
+class GrpcClientManager extends GenericClientManager:
+  static providerName = "grpc.client.manager"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "protos": "protocols"
+  })
+
+  // Locate a service that speaks the given protocol. If there are no services
+  // or multiple services, the search fails.
+  serviceNameForProtocol(protocolName): string -/>
+    // First load the protocol
+    <- this.protos.definition(protocolName)
+
+    { environment } = this.node
+    serviceNames = environment.getServiceNames()
+    candidateServices = [...for elem name in serviceNames:
+      service = environment.getService(name)
+      if service.type?.startsWith("grpc") and service.protocols?.includes(protocolName):
+        [service]
+    ]
+
+    if candidateServices.length == 0:
+      throw new errors.NotFoundError("serviceForProtocol", protocolName, "no matching service found")
+    elif candidateServices.length > 1:
+      throw new errors.FailedPreconditionError("ambiguous", "serviceForProtocol", `'${protocolName}' is provided by multiple services.`)
+    else:
+      candidateServices[0].name
+
+
+Container.provide(GrpcClientManager)

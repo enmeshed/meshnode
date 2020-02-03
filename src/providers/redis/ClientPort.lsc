@@ -1,0 +1,45 @@
+import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { GenericClientPort } from '../GenericClientPort'
+
+Redis = require('ioredis')
+
+export class RedisClientPort extends GenericClientPort:
+  static providerName = "redis.client.port"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "mgr": Dependency.weak("redis.client.manager")
+    "node": "node"
+  })
+
+  // All connections to this service
+  connections = []
+
+  connection() -/>
+    connection = new Redis(this.redisConf)
+    this.connections.push(connection)
+    connection
+
+  getRedisOptions() ->
+    this.redisConf
+
+  disconnect(conn): void -/>
+    <- conn.quit()
+    this.connections = this.connections.filter(x -> x != conn)
+
+  // ClientPort api
+  startClient(): void -/>
+    { service, provider } = this
+
+    log.info(`creating client for Redis service ${service.name}`)
+
+    this.redisConf = {
+      host: provider.host
+      port: provider.port
+      db: provider.database
+      ...if provider.password: { password: provider.password }
+    }
+
+  stopClient(): void -/>
+    log.info(`stopping Redis client for ${this.service.name}`)
+    // TODO: consider open connection handling
+    <- [...for elem conn in this.connections: [conn.quit()]]
+    return

@@ -1,17 +1,18 @@
-import { LogWriter, LogMiddleware } from './logging'
+import { LogWriter } from './Logging'
 
 safeJsonStringify = require('safe-json-stringify')
 
 export class StdoutLogWriter extends LogWriter:
-  writeToLog(data): void ->
+  writeToLog(data) ->
     rec = Object.assign({}, data)
     time = rec.time
     message = rec.message
-    level = LogMiddleware.levelNumberToName(rec.level).toUpperCase()
+    level = rec.level.toUpperCase()
 
     delete rec.time
     delete rec.message
     delete rec.level
+    delete rec.levelNumber
 
     fTime = (new Date(time)).toISOString()
     rest = safeJsonStringify(rec)

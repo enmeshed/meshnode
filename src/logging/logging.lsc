@@ -1,17 +1,21 @@
-import { getContext } from '../globalContext'
+globalThis = require('globalthis')()
 
 levelNameToNumber = {
+  MIN: 1
   trace: 10
   debug: 20
   info: 30
   warn: 40
   error: 50
   fatal: 60
+  MAX: 100
 }
+
+MAX_LOG_LEVEL = levelNameToNumber.MAX
 
 levelNumberToName = {...for key k, val v in levelNameToNumber: {[v]: k}}
 
-export class LogMiddleware:
+export class Log:
   static levelNameToNumber(name) ->
     rst = levelNameToNumber[name]
     if rst~looseNotEq(null): rst else: 30
@@ -20,6 +24,43 @@ export class LogMiddleware:
     rst = levelNumberToName[number]
     if rst: rst else: "info"
 
+  static addMiddleware(stackName, middleware, prepend): void ->
+    ctx = getContext()
+    stack = ctx[stackName]
+    if stack:
+      if prepend:
+        ctx[stackName] = [middleware].concat(stack)
+      else:
+        ctx[stackName] = stack.concat([middleware])
+    else:
+      ctx[stackName] = [middleware]
+
+  static addWriter(writer): void ->
+    this.addMiddleware("logWriter", writer)
+    ctx = getContext()
+    ctx.minLogLevel = Math.min(ctx.minLogLevel or MAX_LOG_LEVEL, writer.level or MAX_LOG_LEVEL)
+
+  static getMiddleware(stackName) ->
+    getContext()?[stackName]
+
+  static shouldLog(numericLevel): boolean ->
+    targetLevel = getContext()?.minLogLevel or MAX_LOG_LEVEL
+    if (targetLevel < MAX_LOG_LEVEL) and (numericLevel >= targetLevel): true else: false
+
+  static doLog(data): void ->
+    if not data.time: data.time = Date.now()
+    if not data.level: data.level = "info"
+    if not data.levelNumber: data.levelNumber = this.levelNameToNumber(this.level)
+    filters = this.getMiddleware("logFilter")
+    if filters:
+      for elem filter in filters:
+        filter.logEntry(data)
+    writers = this.getMiddleware("logWriter")
+    if writers:
+      for elem writer in writers:
+        writer.logEntry(data)
+
+export class LogMiddleware:
   constructor(handler) ->
     if typeof(handler) == 'function':
       this.logEntry = handler.bind(this)
@@ -35,13 +76,12 @@ export class LogWriter extends LogMiddleware:
     if typeof(lv) == 'number':
       this.level = lv
     else:
-      this.level = LogMiddleware.levelNameToNumber(lv)
+      this.level = Log.levelNameToNumber(lv)
     this
-
 
   // Filter events to be logged.
   filter(data): boolean ->
-    if data.level < this.level:
+    if data.levelNumber < this.level:
       false
     else:
       true
@@ -59,39 +99,24 @@ export class LogWriter extends LogMiddleware:
           console.error("Error while writing to log", err)
         )
 
-// Add logging middleware that applies only to the current context and
-// all subcontexts.
-export addLoggingMiddleware(middleware, prepend) ->
-  ctx = getContext()
-  if ctx.loggingMiddleware:
-    if prepend:
-      ctx.loggingMiddleware = [middleware].concat(ctx.loggingMiddleware)
-    else:
-      ctx.loggingMiddleware = ctx.loggingMiddleware.concat([middleware])
-  else:
-    ctx.loggingMiddleware = [middleware]
-
-getLoggingMiddleware() ->
-  getContext()?.loggingMiddleware
 
 // Variadic log function
-export vaLog(level, ...args): void ->
-  middlewareChain = getLoggingMiddleware()
-  // Nothing to do.
-  if not middlewareChain or (middlewareChain.length == 0): return
+export vaLog(levelNumber, ...args): void ->
+  levelName = Log.levelNumberToName(levelNumber)
 
-  data = { level, time: Date.now() }
+  data = { level: levelName, levelNumber, time: Date.now(), message: '' }
 
   for elem arg in args:
     if typeof(arg) == 'string':
       if not data.message: data.message = arg else: data.message += ' ' + arg
     elif typeof(arg) == 'object':
       Object.assign(data, arg)
+    else:
+      data.message += arg
 
-  for elem middleware in middlewareChain:
-    middleware.logEntry(data)
+  Log.doLog(data)
 
-log = {
+logMethods = {
   trace(...args): void -> vaLog(10, ...args)
   debug(...args): void -> vaLog(20, ...args)
   info(...args): void -> vaLog(30, ...args)
@@ -100,4 +125,8 @@ log = {
   fatal(...args): void -> vaLog(60, ...args)
 }
 
-export { log }
+// Log capability is global.
+debugger
+globalThis.log = logMethods
+
+export { logMethods as log }

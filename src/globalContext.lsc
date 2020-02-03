@@ -1,4 +1,5 @@
 { Contexty } = require('contexty')
+globalThis = require('globalthis')()
 
 let ctxContainer = null
 
@@ -21,3 +22,10 @@ export createContext() ->
 // Get the managing mesh node
 export getNode() ->
   getContext().node
+
+globalContext = createContext()
+
+globalThis.getContext = getContext
+globalThis.createContext = createContext
+
+export { globalContext }

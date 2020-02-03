@@ -1,0 +1,71 @@
+import { Container, Dependency, Dependencies } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+
+import { GenericServicePort } from '../GenericServicePort'
+import { ServerEnhancer } from './util/ServerEnhancer'
+
+import '../Protocols'
+
+grpc = require('@grpc/grpc-js')
+jaegerClient = require('jaeger-client')
+
+class GrpcServicePort extends GenericServicePort:
+  static providerName = "grpc.service.port"
+
+  static dependencies = Dependencies.union(super.dependencies, {
+    "protos": "protocols"
+    "mgr": Dependency.weak("grpc.service.manager")
+    "errorCodec": "grpc.errorCodec"
+    "ExtensionHeader": "extensionHeader"
+  })
+
+  startService(): void -/>
+    { log, Config, service, bindings } = this
+    { provider } = this.node
+
+    // Verify and load protocols
+    { protocols } = this.service
+    for elem proto in protocols:
+      if not bindings[proto]:
+        throw new errors.UnimplementedError(`GrpcServicePort.init(): service ${this.serviceName} does not implement requred protocol ${proto}`)
+
+    { protos } = this
+    <- protos.findAll(...protocols)
+
+    // Determine port number
+    port = if service.type == 'grpc_mesh':
+      portIndex = provider.getServiceOrdinal(service)
+      if portIndex == null:
+        throw new errors.InternalError(`GrpcMeshServicePort.start(): port not found`)
+      Config.required("ports", Object).host_base + portIndex
+    elif service.type == 'grpc_direct':
+      service.port
+
+    // Create server
+    // Create Jaeger tracer for this service
+    this.tracer = jaegerClient.initTracer(
+      {
+        serviceName: service.name
+      }
+    )
+    baseServer = new grpc.Server()
+    enhServer = new ServerEnhancer(baseServer, this.tracer, this.errorCodec, this.extensionHeader)
+    this.server = enhServer
+
+    // Bind handlers to server
+    for key svcName, val svcBindings in bindings:
+      svcDef = protos.lookup(svcName)
+      if not svcDef:
+        throw new errors.InternalError(`GrpcMeshServicePort.start(): service ${svcName} could not be resolved by dynamic loader.`)
+      enhServer.addService(svcDef.methods, svcBindings)
+
+    <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())
+    enhServer.start()
+    log.info(`started gRPC server for ${this.service.name} on port ${port}`)
+
+  stopService(): void -/>
+    if this.server:
+      <- this.server.shutdown()
+      this.server = null
+
+Container.provide(GrpcServicePort)

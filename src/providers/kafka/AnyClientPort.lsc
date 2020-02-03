@@ -1,0 +1,9 @@
+// Attempt to connect to any Kafka service.
+import { AnyClientPort } from '../AnyClientPort'
+import './ClientManager'
+
+export class AnyKafkaClientPort extends AnyClientPort:
+  static providerName = "kafka"
+  static dependencies = {
+    "mgr": "kafka.client.manager"
+  }

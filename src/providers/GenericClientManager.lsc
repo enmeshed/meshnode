@@ -1,0 +1,59 @@
+// GenericClientManager is a piece of infrastructure for accessing services
+// that may be located elsewhere on the mesh.
+import { Provider, Container, Resources } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+import "./Node"
+
+export class GenericClientManager extends Provider:
+  static dependencies = {
+    "node": "node"
+  }
+
+  // Service types this client can connect to.
+  serviceTypes = []
+  // Provider for client ports
+  portProviderName: string = "unknown"
+
+  // Generic lifecycle. Should be overwritten in subclass to monitor
+  // specific resources.
+  init(): void ->
+    // Prevent manager resources from being freed until app shutdown.
+    Container.retain(this)
+    Promise.resolve(undefined)
+
+  destroy(): void -/>
+    // Release all cached resources at manager shutdown
+    <- this.ports.clear()
+
+  // Manage lifecycle of all ports we conjure
+  ports = new Resources(true)
+
+  registerPort(port): void ->
+    this.ports.add(port)
+
+  unregisterPort(port): void ->
+    this.ports.evict(port)
+
+  // Await provision of the given named service
+  awaitService(serviceName: string) -/>
+    { environment } = this.node
+    this.log.trace("locating service", serviceName)
+    service = environment.getService(serviceName)
+    provider <- service.awaitProvider(10000)
+    if not provider:
+      throw new errors.FailedPreconditionError("missingProvider", serviceName, "could not find provider for service")
+    service
+
+  // Find all services having a type that matches this client's known
+  // types.
+  findMatchingServices() ->
+    { environment } = this.node
+    serviceNames = environment.getServiceNames()
+    [...for elem name in serviceNames:
+      service = environment.getService(name)
+      if this.serviceTypes.includes(service.type): [service]
+    ]
+
+  // Determine port name for a named service
+  portNameForServiceName(serviceName) ->
+    `${this.portProviderName}:${serviceName}`

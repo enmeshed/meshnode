@@ -1,0 +1,71 @@
+import { errors } from '@enmeshed/errors'
+import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { GenericClientPort } from '../GenericClientPort'
+
+mysql = require('mysql2')
+
+export class MysqlClientPort extends GenericClientPort:
+  static providerName = "mysql.client.port"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "mgr": Dependency.weak("mysql.client.manager")
+    "node": "node"
+    "Config": "config"
+  })
+
+  // All open pools
+  pools = {}
+
+  createPool(name, overrides): void -/>
+    if typeof(name) != 'string' or (not name):
+      throw new errors.InvalidArgumentError('name', 'must be a nonempty string')
+
+    if this.poolsByName[name]:
+      throw new errors.AlreadyExistsError("pool", name)
+
+    conf = Object.assign({}, this.dbConf, overrides)
+    pool_x = mysql.createPool(conf)
+    pool = pool_x.promise()
+    this.pools[name] = pool
+
+  destroyPool(name): void -/>
+    pool = this.pools[name]
+    if not pool: return
+    this.pools[name] = undefined
+    <- pool.end()
+
+  getPoolNames() -> Object.keys(this.pools)
+
+  getReadConnection(): Promise<any> ->
+    if this.pools["read"]:
+      this.pools["read"].getConnection()
+    else:
+      Promise.reject(new errors.InternalError("MySQL read connection pool was not initialized"))
+
+  getReadWriteConnection(): Promise<any> ->
+    if this.pools["readwrite"]:
+      this.pools["readwrite"].getConnection()
+    else:
+      Promise.reject(new errors.InternalError("MySQL read-write connection pool was not initialized"))
+
+  getMysqlOptions() ->
+    this.dbConf
+
+  // ClientPort api
+  startClient(): void -/>
+    { service, provider, Config } = this
+
+    log.info(`creating client for MySQL service ${service.name}`)
+
+    // Determine default mysql config
+    this.dbConf = {
+      host: provider.host
+      port: provider.port
+      database: provider.database
+      user: provider.user
+      password: Config.required(provider.passwordSecretId)
+    }
+
+  stopClient(): void -/>
+    log.info(`stopping MySQL client for ${this.service.name}`)
+    <- [...for elem poolName in this.getPoolNames(): [this.destroyPool(poolName)]]
+    return

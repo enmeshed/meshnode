@@ -1,0 +1,12 @@
+import { Container } from '@enmeshed/alpha'
+import { GenericServiceManager } from '../GenericServiceManager'
+import "./ServicePort"
+
+// The GrpcServiceManager attempts to conjure all services provided by the
+// Node.
+export class GrpcServiceManager extends GenericServiceManager:
+  static providerName = "grpc.service.manager"
+  serviceTypes = ['grpc_mesh', 'grpc_direct']
+  portProviderName = "grpc.service.port"
+
+Container.provide(GrpcServiceManager)

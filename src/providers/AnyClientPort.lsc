@@ -1,0 +1,16 @@
+import { errors } from '@enmeshed/errors'
+import { Alias } from '@enmeshed/alpha'
+
+export class AnyClientPort extends Alias:
+  static resolveAlias(deps, setupContext) -/>
+    { mgr } = deps
+    { namespace } = setupContext
+
+    services = mgr.findMatchingServices()
+    if services.length == 0:
+      throw new errors.NotFoundError("service", `matching types ${mgr.serviceTypes}`)
+
+    // Open port
+    portName = mgr.portNameForServiceName(services[0].name)
+    port <- namespace.resolve(portName)
+    port

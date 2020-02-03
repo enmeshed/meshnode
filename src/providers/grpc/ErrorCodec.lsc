@@ -1,0 +1,23 @@
+import { Container, toProvider } from '@enmeshed/alpha'
+import { installGlobalProtocol } from '@enmeshed/protobuf'
+import { ProtobufMarshal } from '@enmeshed/errors'
+
+import '../Protocols'
+
+Container.provide(toProvider({
+  name: "grpc.errorCodec"
+
+  dependencies: {
+    "protos": "protocols"
+  }
+
+  init() -/>
+    Container.retain(this)
+
+  injectDependencies(deps) -/>
+    { protos } = deps
+    debugger
+    ProtobufMarshal.installProtos(installGlobalProtocol)
+    debugger
+    new ProtobufMarshal(protos)
+}))

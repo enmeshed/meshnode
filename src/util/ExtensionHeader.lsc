@@ -1,5 +1,3 @@
-import { getNode, getContext } from './globalContext'
-import { log } from './logging/logging'
 import { Metadata } from '@enmeshed/grpc'
 import { errors } from '@enmeshed/errors'
 
@@ -70,15 +68,14 @@ export class ExtensionHeader:
     ctx = getContext()
     if ctx.extensionHeader: return ctx.extensionHeader
     if not tolerant: throw new errors.UnauthenticatedError('could not get active extension header')
-    getNode().createExtensionHeader()
+    new this()
 
   // Set the extension header for the current context based on contextual
   // data, usually an HTTP header.
   static setFromHeaderData(headers) ->
     headerData = (headers or {})['x-mesh-extension']
     ctx = getContext()
-    node = getNode()
-    header = node.createExtensionHeader()
+    header = new this()
 
     if headerData:
       try:

@@ -1,0 +1,50 @@
+import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { GenericClientPort } from '../GenericClientPort'
+{ Kafka, logLevel } = require('kafkajs')
+
+export class KafkaClientPort extends GenericClientPort:
+  static providerName = "kafka.client.port"
+  static dependencies = Dependencies.union(super.dependencies, {
+    "mgr": Dependency.weak("kafka.client.manager")
+    "node": "node"
+  })
+
+  // All connections to this Kafka service
+  connections = []
+  // Prefixes to add to topics and groups
+  topicPrefix = ''
+  groupPrefix = ''
+
+  _connect(type, ...args) -/>
+    connection = this.kafka[type](...args)
+    <- connection.connect()
+    this.connections.push(connection)
+    connection
+
+  disconnect(conn, ...args): void -/>
+    <- conn.disconnect(...args)
+    this.connections = this.connections.filter(x -> x != conn)
+
+  // Specific connection types
+  producer(...args) -> this._connect("producer", ...args)
+  consumer(...args) -> this._connect("consumer", ...args)
+  admin(...args) -> this._connect("admin", ...args)
+
+  // ClientPort api
+  startClient() -/>
+    { node, service, provider } = this
+
+    log.info(`creating client for Kafka service ${service.name}`)
+    this.kafka = new Kafka({
+      logLevel: logLevel.DEBUG
+      clientId: node.name
+      brokers: provider.brokers
+    })
+    this.topicPrefix = if provider.topicPrefix: provider.topicPrefix else: ''
+    this.groupPrefix = if provider.groupPrefix: provider.groupPrefix else: ''
+
+  stopClient() -/>
+    log.info(`stopping Kafka client for ${this.service.name}`)
+    // TODO: consider open connection handling
+    <- [...for elem conn in this.connections: [conn.disconnect()]]
+    return

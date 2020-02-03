@@ -1,0 +1,71 @@
+import { CommonError, PlainObjectMarshal } from '@enmeshed/errors'
+import * as opentracing from "opentracing"
+import url from 'url'
+
+export createFirstMiddleware(tracer, ExtensionHeader) ->
+  firstMiddleware(req, res, next) ->
+    requestContext = createContext()
+
+    ///////////////////// Create extension header
+    ExtensionHeader.setFromHeaderData(req.headers)
+
+    ///////////////////// Create opentracing span
+    wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, req.headers)
+    pathname = url.parse(req.url).pathname
+    span = tracer.startSpan(pathname, {childOf: wireCtx})
+    requestContext.openTracingSpan = span
+    span.logEvent("request_received")
+
+    // include some useful tags on the trace
+    span.setTag("http.method", req.method)
+    span.setTag("span.kind", "server")
+    span.setTag("http.url", req.url)
+
+    // include trace ID in headers so that we can debug slow requests we see in
+    // the browser by looking up the trace ID found in response headers
+    responseHeaders = {}
+    tracer.inject(span, opentracing.FORMAT_TEXT_MAP, responseHeaders)
+    Object.keys(responseHeaders).forEach(key => res.setHeader(key, responseHeaders[key]))
+
+    // add the span to the request object for handlers to use
+    Object.assign(req, {span})
+
+    // finalize the span when the response is completed
+    finishSpan = () => {
+      span.logEvent("request_finished")
+      // // Route matching often happens after the middleware is run. Try changing the operation name
+      // // to the route matcher.
+      // opName = (req.route && req.route.path) || pathname
+      // span.setOperationName(opName)
+      span.setTag("http.status_code", res.statusCode)
+      if (res.error or (res.statusCode >= 500)) {
+        span.setTag("error", true)
+        span.setTag("sampling.priority", 1)
+        if res.error:
+          error = res.error
+          // Log error event
+          logData = { event: "error", "error.message": error.message }
+          if error instanceof CommonError:
+            marshalledError = (new PlainObjectMarshal()).marshalError(error)
+            logData["error.dump"] = error.dump()
+            logData["error.status"] = error.getStatusName()
+            logData["error.retry"] = if error.retry: true else: false
+            logData["error.class"] = marshalledError.errorClass
+            logData["error.object"] = marshalledError
+          else:
+            logData["error.dump"] = error.stack
+          log.error(error.message, logData)
+        else:
+          log.error("Unknown http request error")
+      }
+      span.finish()
+    }
+    res.on('close', finishSpan)
+    res.on('finish', finishSpan)
+
+    next()
+
+export createLastErrorHandler() ->
+  lastErrorHandlingMiddleware(err, req, res, next) ->
+    res.error = err
+    next(err)

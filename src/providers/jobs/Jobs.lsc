@@ -1,0 +1,91 @@
+import { Provider, Container } from '@enmeshed/alpha'
+import lodash from "lodash"
+
+Queue = require('bull')
+
+export class Job:
+  // Underlying Bull job object
+  _nativeJob = null
+
+  getQueueName(): string ->
+    this.constructor.queueName
+
+  getData() ->
+    Object.assign({}, this)
+
+  getOptions() ->
+    this.constructor.jobOptions
+
+  setNativeJob(nj): void ->
+    this._nativeJob = nj
+
+export class Jobs extends Provider:
+  static dependencies = {
+    "redis": "redis"
+    "events": "events"
+  }
+
+  static options = {
+    // Reuse redis connections across queues?
+    reuseConnections: true
+    // Base Queue creation options
+    baseQueueOpts: {}
+  }
+
+  defaultJobOpts = {
+    attempts: 1
+    removeOnComplete: 500
+  }
+
+  queues = {}
+
+  init(): void -/>
+    { redis } = this
+    jobsOpts = this.constructor.options
+    queueOpts = lodash.cloneDeep(jobsOpts.baseQueueOpts)
+    if jobsOpts.reuseConnections:
+      log.info("jobs: creating reusable redis connections")
+      [cliConn, subConn, bcliConn] <- [redis.connection(), redis.connection(), redis.connection()]
+      this.storedConnections = [cliConn, subConn, bcliConn]
+      queueOpts.createClient = (type) ->
+        match type:
+          | 'client': cliConn
+          | 'subscriber': subConn
+          | 'bclient': bcliConn
+          | else: throw new Error("invalid redis client type")
+    else:
+      queueOpts.redis = redis.getRedisOptions()
+    this.queueOpts = queueOpts
+
+    Container.retain(this)
+
+  getQueue(name) ->
+    if this.queues[name]:
+      this.queues[name]
+    else:
+      log.info(`Creating new interface to job queue: ${name}`)
+      queue = new Queue(name)
+      queue.on('stalled', this.onJobStalled.bind(this, queue))
+      this.queues[name] = queue
+
+  onJobStalled(queue, job): void ->
+    log.warn("Job stalled", { jobQueue: queue.name, data: job.data })
+    this.events.fire("system.job.stalled", { jobQueue: queue.name, data: job.data })
+
+  enqueueRaw(queueName, data, opts) ->
+    queue = this.getQueue(queueName)
+    nextOpts = Object.assign({}, this.defaultJobOpts, opts)
+    queue.add(data, nextOpts)
+
+  enqueue(job: Job) -/>
+    nj <- this.enqueueRaw(job.getQueueName(), job.getData(), job.getOptions())
+    job.setNativeJob(nj)
+    job
+
+  destroy(): void -/>
+    { redis } = this
+    if this.queues:
+      log.info(`jobs: closing queues`)
+      <- [...for val queue in this.queues: [queue.close()]]
+    if this.storedConnections:
+      <- [...for elem conn in this.storedConnections: [redis.disconnect(conn)]]

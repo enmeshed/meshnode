@@ -1,0 +1,8 @@
+import { AnyClientPort } from '../AnyClientPort'
+import './ClientManager'
+
+export class AnyMysqlClientPort extends AnyClientPort:
+  static providerName = "elasticsearch"
+  static dependencies = {
+    "mgr": "elasticsearch.client.manager"
+  }

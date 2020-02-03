@@ -1,0 +1,12 @@
+import { Container } from '@enmeshed/alpha'
+import { GenericClientManager } from '../GenericClientManager'
+
+import "./ClientPort"
+
+export class MysqlClientManager extends GenericClientManager:
+  static providerName = "mysql.client.manager"
+
+  serviceTypes = ['mysql']
+  portProviderName = "mysql.client.port"
+
+Container.provide(MysqlClientManager)

@@ -1,0 +1,94 @@
+import { CommonError, PlainObjectMarshal } from '@enmeshed/errors'
+import { ServerEnhancer as BaseServerEnhancer } from '@enmeshed/grpc'
+import * as opentracing from "opentracing"
+
+grpc = require('@grpc/grpc-js')
+
+export class ServerEnhancer extends BaseServerEnhancer:
+  constructor(server, tracer, errorCodec, ExtensionHeader) ->
+    super(server)
+    this.tracer = tracer
+    this.errorCodec = errorCodec
+    this.ExtensionHeader = ExtensionHeader
+
+  // Encode CommonErrors as metadata
+  marshalError(err) ->
+    if not (err instanceof CommonError): return err
+
+    let buf = null
+    try:
+      // XXX: Should we be using production censorship here? Probably should
+      // be a context dependent check.
+      now buf = this.errorCodec.statusToBuffer(this.errorCodec.marshalError(err))
+    catch encodeError:
+      log.error('Error while encoding another error for transport', { originalError: err, encodeError })
+
+    // Apply fields to the error that will be transferred to the Status
+    // object by grpc.js
+    err.code = err.getStatusCode()
+    err.metadata = new grpc.Metadata()
+    if buf: err.metadata.set('grpc-status-bin', buf)
+
+    err
+
+  requestWillBegin(requestContext): void ->
+    super.requestWillBegin(requestContext)
+
+    { tracer } = this
+    globalContext = createContext()
+
+    { metadata, methodName } = requestContext
+
+    headerMap = (metadata?.getMap() or {})
+
+    ///////////// extension header
+    extensionHeader = this.ExtensionHeader.setFromHeaderData(headerMap)
+    requestContext.extensionHeader = extensionHeader
+
+    ///////////// OpenTracing context
+    wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, headerMap)
+    span = if wireCtx:
+      tracer.startSpan(methodName, {childOf: wireCtx})
+    else:
+      tracer.startSpan(methodName)
+    globalContext.openTracingSpan = span
+    requestContext.openTracingSpan = span
+
+    span.setTag("span.kind", "server")
+    span.setTag("component", "grpc")
+    span.log({event: "request_received"})
+
+  requestDidEnd(requestContext): void ->
+    super.requestDidEnd(requestContext)
+
+    { error, methodName, result } = requestContext
+    // if error:
+    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "error:", error)
+    // elif result:
+    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "result:", result)
+
+    span = requestContext.openTracingSpan
+    if not span: return
+
+    if error:
+      // Flag span as erroneous
+      span.setTag("error", true)
+      span.setTag("sampling.priority", 1)
+
+      // Log error event
+      logData = { event: "error", "error.message": error.message }
+      if error instanceof CommonError:
+        marshalledError = (new PlainObjectMarshal()).marshalError(error)
+        logData["error.dump"] = error.dump()
+        logData["error.status"] = error.getStatusName()
+        logData["error.retry"] = if error.retry: true else: false
+        logData["error.class"] = marshalledError.errorClass
+        logData["error.object"] = marshalledError
+      else:
+        logData["error.dump"] = error.stack
+
+      log.error(error.message, logData)
+    else:
+      span.log({event: "request_finished"})
+
+    span.finish()

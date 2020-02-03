@@ -1,0 +1,56 @@
+import { Provider, Container, splitName, Dependency } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+import { ClientEnhancer } from './util/ClientEnhancer'
+
+import "./ErrorCodec"
+import "../ExtensionHeader"
+
+mgr$ = Symbol('client_manager')
+
+// The GrpcClientPort manages connections to a particular gRPC mesh service
+// speaking a particular protocol.
+class GrpcClientPort extends Provider:
+  static providerName = "grpc.client.port"
+
+  static dependencies = {
+    "mgr": Dependency.weak("grpc.client.manager")
+    "Config": "config"
+    "protos": "protocols"
+    "errorCodec": "grpc.errorCodec"
+    "ExtensionHeader": "extensionHeader"
+  }
+
+  static injectDependencies(deps, setupContext) -/>
+    { mgr, Config, protos, errorCodec, ExtensionHeader } = deps
+
+    [ serviceName, protocolName ] = splitName(setupContext.getNameArg())
+    if (not serviceName):
+      throw new errors.InvalidArgumentError("serviceName", "missing")
+    if (not protocolName):
+      throw new errors.InvalidArgumentError("protocolName", "missing")
+
+    service <- mgr.awaitService(serviceName)
+
+    if not service.protocols?.includes(protocolName):
+      throw new errors.UnimplementedError(`Service ${service.name} does not implement protocol ${protocolName}`)
+
+    url = if service.type == 'grpc_mesh':
+      meshPort = Config.required("ports", Object).outgoing_proxy
+      `http://127.0.0.1:${meshPort}/grpc/${service.name}`
+    elif service.type == 'grpc_direct':
+      `${service.provider.dns}:${service.port}`
+
+    log.trace(`creating grpc client for service ${serviceName}, protocol ${protocolName} at address ${url}`)
+    baseClient <- protos.client(this.url)
+    client = new ClientEnhancer(baseClient, errorCodec, ExtensionHeader)
+    client[mgr$] = mgr
+    client
+
+  static init(resource): void -/>
+    resource[mgr$].registerPort(resource)
+
+  static destroy(resource): void -/>
+    resource.close()
+    resource[mgr$].unregisterPort(resource)
+
+Container.provide(GrpcClientPort)

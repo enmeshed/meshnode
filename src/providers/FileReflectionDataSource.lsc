@@ -1,0 +1,6 @@
+// Read cluster config from a file provided on CLI.
+import { createProvider } from '@enmeshed/alpha'
+
+FileReflectionDataSource = createProvider({
+  name: 'node.reflectionDataSource'
+})
