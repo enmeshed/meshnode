@@ -1,14 +1,23 @@
 import { Provider, Container } from '@enmeshed/alpha'
 import lodash from "lodash"
 
+// Preload Redis IOC resources
+import '../redis/AnyClientPort'
+
 Queue = require('bull')
 
 export class Job:
   // Underlying Bull job object
   _nativeJob = null
 
+  // Job json data
+  data = {}
+
   // Number of concurrent instances that can run per worker node
   static concurrency = 1
+
+  // Job options for Bull
+  static jobOptions = {}
 
   static getQueueName(): string ->
     this.queueName
@@ -19,19 +28,16 @@ export class Job:
     job.setData(nativeJob.data)
     job
 
-  getTracingData() -> this._tracing
-
   getQueueName(): string ->
     this.constructor.getQueueName()
 
-  getData() ->
-    Object.assign({}, this)
+  getData() -> this.data
 
   getOptions() ->
     this.constructor.jobOptions
 
   setData(data): void ->
-    Object.assign(this, data)
+    this.data = data
 
   setNativeJob(nj): void ->
     this._nativeJob = nj
@@ -103,14 +109,18 @@ export class Jobs extends Provider:
 
   enqueueRaw(queueName, data, opts) ->
     queue = this.getQueue(queueName)
+    log.info(`Enqueueing job to job queue: ${queueName}`)
 
     // Inject active context
-    // If we have OpenTracing data, inject it
+    nextData = Object.assign({}, data)
+    context = Context.current()
+    nextData._context = context.toJSON()
 
     nextOpts = Object.assign({}, this.defaultJobOpts, opts)
     queue.add(data, nextOpts)
 
   processRaw(queueName, concurrency, handler, JobClass) ->
+    log.trace(`processing jobs from queue ${queueName}`)
     queue = this.getQueue(queueName)
     queue.process(concurrency, this.wrapHandler(handler, queueName, JobClass))
 
@@ -140,6 +150,7 @@ export class Jobs extends Provider:
       log.tag('message_bus.kind', 'job')
       log.tag('message_bus.destination', destinationName)
       log.trace({event: "processing_began"})
+      logHere = log.useContext(context)
 
       // Instantiate wrapped job class
       wrappedJob = JobClass.fromNativeJob(job)
@@ -149,13 +160,13 @@ export class Jobs extends Provider:
       try:
         <- handler(wrappedJob)
       catch err:
-        log.error({err})
+        logHere.error({err})
         // Discard jobs that encounter non-transient errors
         if not err.retry:
-          log.info('discarding job for non-retriable error')
-          job.discard().catch((err) -> console.error("error while discarding job", err))
+          logHere.info('discarding job for non-retriable error')
+          job.discard().catch((err) -> logHere.error({err}, "error while discarding job"))
       finally:
-        log.trace({event: 'processing_finished'})
+        logHere.trace({event: 'processing_finished'})
         this.events.fire("system.job.finished", { jobQueue: queueName, data })
         context.tracing?.finishSpan()
 
@@ -166,6 +177,10 @@ export class Jobs extends Provider:
 
   process(JobClass, handler) ->
     this.processRaw(JobClass.getQueueName(), JobClass.concurrency, handler, JobClass)
+
+  processAll(bindings): void ->
+    for elem [jobClass, handler] in bindings:
+      this.process(jobClass, handler)
 
   destroy(): void -/>
     { redis } = this

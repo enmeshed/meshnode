@@ -1,4 +1,4 @@
-import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { Dependencies, Dependency, Container } from '@enmeshed/alpha'
 import { GenericClientPort } from '../GenericClientPort'
 
 Redis = require('ioredis')
@@ -43,3 +43,5 @@ export class RedisClientPort extends GenericClientPort:
     // TODO: consider open connection handling
     <- [...for elem conn in this.connections: [conn.quit()]]
     return
+
+Container.provide(RedisClientPort)
