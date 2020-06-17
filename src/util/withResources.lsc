@@ -1,0 +1,31 @@
+import { ResolutionContext, Namespace } from '@enmeshed/alpha'
+
+export function withResources(depMap, fn) ->
+  (...args) -/>
+    namespace = Namespace.globalNamespace
+    { Dependencies } = namespace.constructor
+    resolutionContext = new ResolutionContext("_using")
+    node = new (namespace.constructor.DependencyNode)()
+    provider = {}
+    setupContext = {
+      resolutionContext
+      dependencyNode: node
+      provider
+      namespace
+      getNameArg() -> null
+    }
+
+    dependencies = Dependencies.from(depMap)
+    { resolvedDependencies, strongRefs } <- dependencies.resolve(setupContext)
+    node.injectDependencies(strongRefs)
+    node.ref()
+
+    let result
+    try:
+      now result <- fn(resolvedDependencies, ...args)
+    catch err:
+      throw err
+    finally:
+      node.deref().catch(-> return)
+
+    result

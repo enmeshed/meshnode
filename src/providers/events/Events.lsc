@@ -1,0 +1,150 @@
+import { Provider, Container } from '@enmeshed/alpha'
+import lodash from "lodash"
+
+import '../kafka/AnyClientPort'
+
+class Fanout:
+  consumerOpts = {}
+  subscribeOpts = {}
+  handlers = []
+  kafka = null
+  errorHandler = (err, fanout) -> console.error("event handler failed", this.subscribeOpts, err)
+
+  constructor(kafka, consumerOpts, subscribeOpts) ->
+    this.kafka = kafka
+    this.consumerOpts = consumerOpts
+    this.subscribeOpts = subscribeOpts
+
+  init(): void -/>
+    this.consumer <- this.kafka.consumer(this.consumerOpts)
+    log.info("listening to kafka topic", { topic: this.subscribeOpts.topic })
+    <- this.consumer.subscribe(this.subscribeOpts)
+    <- this.consumer.run({
+      eachMessage: this.processMessage.bind(this)
+    })
+
+  addHandler(handler): void ->
+    this.handlers.push(handler)
+
+  processMessage(data): void ->
+    for elem handler in this.handlers:
+      handler(data).catch((err) -> console.error("unexpected event handler failure", err))
+
+  destroy(): void -/>
+    this.handlers = []
+    <- this.kafka.disconnect(this.consumer)
+    this.consumer = null
+    this.kafka = null
+
+export class Events extends Provider:
+  static providerName = "events"
+  static dependencies = {
+    "kafka": "kafka"
+  }
+
+  consumers = {}
+
+  init(): void -/>
+    log.info("initializing distributed events")
+    Container.retain(this)
+    this.producer <- this.kafka.producer()
+    this.baseContext = Context.create({
+      base: Context.global()
+      type: 'events'
+    })
+    this.baseContext.tracing.setTracer({tracer: 'event'})
+
+  // Fire-and-forget an event.
+  fire(eventName, eventData): void ->
+    // Inject current context into event data
+    nextData = Object.assign({}, eventData)
+    context = Context.current()
+    nextData._context = context.toJSON()
+
+    this.producer.send({
+      topic: this.kafka.topic(eventName)
+      messages: [
+        { key: eventName, value: JSON.stringify(nextData) }
+      ]
+    }).catch((err) ->
+      // XXX
+      log.error({ err, eventData: nextData }, "Error while enqueuing event to event bus")
+    )
+
+  // Listen for and handle events.
+  listen(eventName, handler): void ->
+    kafkaTopic = this.kafka.topic(eventName)
+    wrappedHandler = this.wrapHandler(handler, eventName)
+    listenAsync(): void =/>
+      if this.consumers[eventName]:
+        this.consumers[eventName].addHandler(wrappedHandler)
+      else:
+        consumer = new Fanout(
+          this.kafka
+          { groupId: this.kafka.group(`event.handler:${kafkaTopic}`) }
+          { topic: kafkaTopic, fromBeginning: false }
+        )
+        this.consumers[eventName] = consumer
+        consumer.addHandler(wrappedHandler)
+        <- consumer.init()
+    listenAsync().catch((err) -> log.error({ err }, "Error while adding distributed event handler"))
+
+  listenAll(handlerMap): void ->
+    for key k, val v in handlerMap:
+      this.listen(k, v)
+
+  wrapHandler(handler, eventName) ->
+    { baseContext } = this
+    destinationName = `${eventName}`
+    wrappedHandler({topic, partition, message}) -/> {
+      // Parse message
+      data = JSON.parse(message.value.toString())
+
+      // Establish async context for job
+      context = Context.push({
+        type: 'event'
+        base: baseContext
+        parent: {
+          relationship: 'followsFrom'
+          json: data?._context
+        }
+      })
+
+      // Establish tracing span
+      context.tracing.startSpan({
+        name: destinationName
+        reference: {
+          relationship: 'followsFrom'
+          context: context.parent
+        }
+      })
+
+      // Establish standard tags
+      log.tag('span.kind', 'consumer')
+      log.tag('message_bus.kind', 'event')
+      log.tag('message_bus.destination', destinationName)
+      log.trace({event: "processing_began"})
+
+      logHere = log.useContext(context)
+
+      // Call wrapped handler
+      try:
+        <- handler(data, eventName)
+        // XXX: lose async context here...
+        logHere.trace({event: "processing_finished"})
+      catch err:
+        logHere.error({err})
+      finally:
+        context.tracing?.finishSpan()
+    } // wrappedHandler
+
+  destroy(): void -/>
+    log.info("tearing down distributed events")
+    prod = this.producer
+    cons = this.consumers
+    this.producer = null
+    this.consumers = null
+    <- this.kafka.disconnect(prod)
+    <- [...for val consumer in cons: [consumer.destroy()]]
+
+Container.provide(Events)

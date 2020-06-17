@@ -1,0 +1,17 @@
+// Custom shutdown hooks for cleanup
+//
+// These are an ESCAPE VALVE ONLY -- Alpha resource management should be
+// used for cleanup when possible.
+
+globalThis = require('globalthis')()
+
+globalThis.shutdownHooks = []
+
+export registerShutdownHook(hook) ->
+  globalThis.shutdownHooks.push(hook)
+
+export executeShutdownHooks() ->
+  promises = [...for elem hook in globalThis.shutdownHooks:
+    [Promise.resolve(hook())]
+  ]
+  Promise.all(promises)

@@ -1,0 +1,63 @@
+// OpenTracing system is pulled outside of Alpha resource path since it may be
+// needed before startup and after shutdown.
+import { registerShutdownHook } from '../util/ShutdownHooks'
+import * as opentracing from "opentracing"
+
+deferred = require('p-defer')
+jaegerClient = require('jaeger-client')
+globalThis = require('globalthis')()
+
+globalThis.tracers = globalThis.tracers or {}
+
+export getTracer(serviceName) ->
+  if globalThis.tracers[serviceName]:
+    globalThis.tracers[serviceName]
+  else:
+    createTracer(serviceName)
+
+export createTracer(serviceName, tags, config = {}, options) ->
+  if typeof(serviceName) != 'string' or serviceName == '':
+    throw new Error('invalid serviceName')
+
+  if tags:
+    now options = options or {}
+    options.tags = Object.assign({}, options.tags, tags)
+
+  config.serviceName = serviceName
+
+  tracer = jaegerClient.initTracer(config, options)
+  globalThis.tracers[serviceName] = tracer
+  tracer
+
+export createSpan(tracer, name, relationship, parent, opts = {}) ->
+  if typeof(name) != 'string':
+    throw new Error('createSpan: string name is required')
+
+  if parent:
+    match relationship:
+      | 'parent':
+        opts.childOf = parent
+      | 'followsFrom':
+        opts.references = [opentracing.followsFrom(parent)]
+      | else:
+        throw new Error(`createSpan: invalid relationship type: ${relationship}`)
+
+  tracer.startSpan(name, opts)
+
+export closeTracer(serviceName) ->
+  tracer = globalThis.tracers[serviceName]
+  globalThis.tracers[serviceName] = undefined
+  if tracer:
+    def = deferred()
+    log.info(`stopping tracer '${serviceName}'`)
+    tracer.close(-> def.resolve(true))
+    def.promise
+  else:
+    Promise.resolve(false)
+
+closeAllTracers() ->
+  log.info('stopping all tracers')
+  promises = [...for key k in globalThis.tracers: [closeTracer(k)]]
+  Promise.all(promises)
+
+registerShutdownHook(closeAllTracers)

@@ -1,4 +1,4 @@
-import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { Dependencies, Dependency, Container } from '@enmeshed/alpha'
 import { GenericClientPort } from '../GenericClientPort'
 { Kafka, logLevel } = require('kafkajs')
 
@@ -30,13 +30,16 @@ export class KafkaClientPort extends GenericClientPort:
   consumer(...args) -> this._connect("consumer", ...args)
   admin(...args) -> this._connect("admin", ...args)
 
+  group(name: string) -> this.groupPrefix + name
+  topic(name: string) -> this.topicPrefix + name
+
   // ClientPort api
   startClient() -/>
     { node, service, provider } = this
 
     log.info(`creating client for Kafka service ${service.name}`)
     this.kafka = new Kafka({
-      logLevel: logLevel.DEBUG
+      logLevel: logLevel.INFO
       clientId: node.name
       brokers: provider.brokers
     })
@@ -48,3 +51,5 @@ export class KafkaClientPort extends GenericClientPort:
     // TODO: consider open connection handling
     <- [...for elem conn in this.connections: [conn.disconnect()]]
     return
+
+Container.provide(KafkaClientPort)

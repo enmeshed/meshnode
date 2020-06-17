@@ -5,8 +5,8 @@ import { errors } from '@enmeshed/errors'
 import os from 'os'
 
 import { Config } from './Config'
+import { executeShutdownHooks } from '../util/ShutdownHooks'
 import './Protocols'
-import './Log'
 
 // Default port configuration
 // XXX: probably shouldn't be here
@@ -23,7 +23,6 @@ class Node extends Provider:
   static dependencies = {
     "config": "config"
     "protos": "protocols"
-    "log": "log"
     "dataSource": "node.reflectionDataSource"
   }
 
@@ -75,35 +74,34 @@ class Node extends Provider:
       throw new errors.InternalError(`This Node is not listed as a Provider for ${name}`)
     service
 
+  stopNode(exitCode = 0): void -/>
+    try:
+      log.info(`stopNode with exit code ${exitCode}`)
+      <- Container.clear()
+      <- executeShutdownHooks()
+      process.exit(exitCode)
+    catch err:
+      debug('error during shutdown', err)
+      log.fatal({err}, 'error during shutdown')
+      process.exit(128)
+
   // Try to gracefully handle node js shutdowns.
   installNodeShutdownHooks(): void ->
     self = this
     log.info("installing node shutdown hooks")
 
     for elem type in ['unhandledRejection', 'uncaughtException']:
-      process.on(type, (err, origin) -/>
-        try:
-          debug('process.on', type, err, origin)
-          self.log.fatal(`node shutting down: ${type}`, { err, origin })
-          <- Container.clear()
-          process.exit(1)
-        catch err:
-          debug('graceless shutdown', err)
-          self.log.fatal('graceless shutdown:', type, { err })
-          process.exit(128)
+      process.on(type, (err, origin): void ->
+        debug('process.on', type, err, origin)
+        log.fatal({ err, origin }, `node shutting down: ${type}`)
+        self.stopNode(1)
       )
 
     for elem type in ['SIGTERM', 'SIGINT', 'SIGUSR2']:
-      process.once(type, -/>
-        try:
-          debug('process.on', type)
-          self.log.warn(`node quitting due to signal: ${type}`)
-          <- Container.clear()
-          process.exit(0)
-        catch err:
-          debug('graceless shutdown', err)
-          self.log.fatal('graceless shutdown:', type, err)
-          process.exit(128)
+      process.once(type, ->
+        debug('process.on', type)
+        log.warn(`node quitting due to signal: ${type}`)
+        self.stopNode(0)
       )
 
 Container.provide(Node)

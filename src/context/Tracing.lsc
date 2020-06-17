@@ -1,0 +1,154 @@
+import { ContextItem, Context } from './Context'
+import { errors } from '@enmeshed/errors'
+import { getTracer, createSpan } from '../logging/Tracing'
+import * as opentracing from "opentracing"
+
+
+// Context-specific tracing and logging data
+export class Tracing extends ContextItem:
+  static type = 'tracing'
+  static unique = true
+  static heritable = true
+
+  // Non-serializable fields
+  // OpenTracing tracer
+  tracer = null
+  // Do I own this tracer? (will destroy when context is closed)
+  ownTracer = false
+  // Are spans allowed? (For global tracing elements, we don't want spans)
+  spansAllowed = true
+  // Active OpenTracing span
+  span = null
+  ownSpan = false
+  // All tags
+  tags = {}
+  // Logging middleware
+  logFilters = []
+
+  constructor() ->
+    super()
+    // Propagating tags
+    this.payload.tags = {}
+
+  _inheritTagsFrom(otherTracing): void ->
+    if not otherTracing: return
+    Object.assign(this.payload.tags, otherTracing.payload.tags)
+    Object.assign(this.tags, otherTracing.tags)
+    this.span?.addTags(this.tags)
+
+  _inheritTracingFrom(otherTracing): void ->
+    if otherTracing.tracer: this._setTracer(otherTracing.tracer, false)
+    if otherTracing.span: this._setSpan(otherTracing.span, false)
+    this.logFilters = otherTracing.logFilters.slice()
+
+  willBeInheritedBy(targetContext, sourceContext, relationship): void ->
+    if not targetContext.tracing:
+      tr = new Tracing()
+      targetContext.apply(tr)
+
+    { tracing } = targetContext
+    tracing._inheritTagsFrom(this)
+    if relationship == 'base':
+      tracing._inheritTracingFrom(this)
+    elif relationship == 'parent' and this.tracer and (not tracing.tracer):
+      // If we couldn't inherit tracing from base, inherit it from parent
+      tracing._inheritTracingFrom(this)
+
+  clone() ->
+    copy = new Tracing()
+    copy._inheritTagsFrom(this)
+    copy._inheritTracingFrom(this)
+    copy.spansAllowed = this.spansAllowed
+    copy
+
+  fromJSON(json) ->
+    super.fromJSON(json)
+    Object.assign(this.tags, this.payload.tags)
+    this
+
+  _setTracer(tracer, ownTracer = false): void ->
+    this._setSpan(null)
+    this.tracer = tracer
+    this.ownTracer = ownTracer
+
+  _setSpan(span, ownSpan = true): void ->
+    if this.span and this.ownSpan:
+      this.span.finish()
+      this.ownSpan = false
+      this.span = null
+      delete this.payload.spanData
+
+    if span:
+      if not this.spansAllowed: throw new Error('Attempt to create a span on a tracer where spans are forbidden')
+      if not this.tracer: throw new Error('Tracing: attempted to add span without tracer')
+      this.span = span
+      this.ownSpan = ownSpan
+      carrier = {}
+      this.tracer.inject(span, opentracing.FORMAT_TEXT_MAP, carrier)
+      this.payload.spanData = carrier
+      this.span.addTags(this.tags)
+
+  tag(key, value, shouldPropagate): void ->
+    if (value == null) or (value == undefined):
+      delete this.tags[key]
+      delete this.payload.tags[key]
+    else:
+      this.tags[key] = value
+      if shouldPropagate: this.payload.tags[key] = value
+      if this.span: this.span.setTag(key, value)
+
+  hasTag(key): boolean ->
+    if (key in this.tags): true else: false
+
+  setTracer(opts): void ->
+    { tracer } = opts
+    if typeof(tracer) == 'string':
+      this._setTracer(getTracer(tracer), false)
+    else:
+      this._setTracer(tracer, true)
+
+  getActiveSpan() ->
+    this.span
+
+  getSpanData() ->
+    this.payload.spanData or {}
+
+  finishSpan() ->
+    this._setSpan(null)
+
+  // When a span contains an error, set tags that will cause the sampler
+  // to keep it
+  setSpanErrorFlags(): void ->
+    if this.span:
+      this.span.setTag('error', true)
+      this.span.setTag('sampling.priority', 1)
+
+  wasAdded(toContext): void ->
+    this.containingContext = toContext
+    toContext.tracing = this
+    toContext.tags = this
+
+  // If a span is active, convert to HTTP headers
+  toHeaders(headersCarrier): void ->
+    if this.span:
+      this.span.tracer().inject(this.span, opentracing.FORMAT_HTTP_HEADERS, headersCarrier)
+
+  // Starts a new active span on this context.
+  startSpan(opts): void ->
+    { name, reference, opts: spanOpts } = opts
+    { tracer } = this
+    { relationship, headers, context } = (reference or {})
+    if not tracer:
+      throw new errors.InternalError('cannot create span with no tracer')
+
+    relatedSpanContext = if headers:
+      tracer.extract(opentracing.FORMAT_HTTP_HEADERS, headers)
+    elif context and context.tracing:
+      tracer.extract(opentracing.FORMAT_TEXT_MAP, context.tracing.getSpanData())
+    else:
+      null
+
+    span = createSpan(tracer, name, relationship or 'parent', relatedSpanContext, spanOpts)
+    this._setSpan(span)
+
+Context.registerType(Tracing)

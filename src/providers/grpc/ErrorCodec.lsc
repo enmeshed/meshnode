@@ -11,13 +11,11 @@ Container.provide(toProvider({
     "protos": "protocols"
   }
 
-  init() -/>
-    Container.retain(this)
+  init(rsrc) -/>
+    Container.retain(rsrc)
 
   injectDependencies(deps) -/>
     { protos } = deps
-    debugger
     ProtobufMarshal.installProtos(installGlobalProtocol)
-    debugger
     new ProtobufMarshal(protos)
 }))

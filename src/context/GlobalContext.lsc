@@ -1,0 +1,18 @@
+// Setup the global context
+import { Context } from './Context'
+import { Tracing } from './Tracing'
+import { globalContext } from './ContextCore'
+
+globalThis = require('globalthis')()
+
+context = Context.create({
+  type: 'system'
+})
+tracing = new Tracing()
+tracing.setTracer({tracer: 'system', spansAllowed: false})
+// XXX: legacy
+tracing.spansAllowed = false
+context.apply(tracing)
+
+globalContext._ctx = context
+globalThis.Context = Context

@@ -16,10 +16,9 @@ export class GenericClientManager extends Provider:
 
   // Generic lifecycle. Should be overwritten in subclass to monitor
   // specific resources.
-  init(): void ->
+  init(): void -/>
     // Prevent manager resources from being freed until app shutdown.
     Container.retain(this)
-    Promise.resolve(undefined)
 
   destroy(): void -/>
     // Release all cached resources at manager shutdown
@@ -37,7 +36,7 @@ export class GenericClientManager extends Provider:
   // Await provision of the given named service
   awaitService(serviceName: string) -/>
     { environment } = this.node
-    this.log.trace("locating service", serviceName)
+    log.trace("locating service", serviceName)
     service = environment.getService(serviceName)
     provider <- service.awaitProvider(10000)
     if not provider:

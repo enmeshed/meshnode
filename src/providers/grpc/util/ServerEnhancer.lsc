@@ -1,18 +1,17 @@
 import { CommonError, PlainObjectMarshal } from '@enmeshed/errors'
 import { ServerEnhancer as BaseServerEnhancer } from '@enmeshed/grpc'
-import * as opentracing from "opentracing"
 
 grpc = require('@grpc/grpc-js')
 
 export class ServerEnhancer extends BaseServerEnhancer:
-  constructor(server, tracer, errorCodec, ExtensionHeader) ->
+  constructor(server, baseContext, errorCodec) ->
     super(server)
-    this.tracer = tracer
+    this.baseContext = baseContext
     this.errorCodec = errorCodec
-    this.ExtensionHeader = ExtensionHeader
 
   // Encode CommonErrors as metadata
   marshalError(err) ->
+    log.trace("marshalError", { error: err })
     if not (err instanceof CommonError): return err
 
     let buf = null
@@ -21,7 +20,7 @@ export class ServerEnhancer extends BaseServerEnhancer:
       // be a context dependent check.
       now buf = this.errorCodec.statusToBuffer(this.errorCodec.marshalError(err))
     catch encodeError:
-      log.error('Error while encoding another error for transport', { originalError: err, encodeError })
+      log.error({err: encodeError}, 'Error while encoding another error for transport', { originalError: err })
 
     // Apply fields to the error that will be transferred to the Status
     // object by grpc.js
@@ -33,62 +32,46 @@ export class ServerEnhancer extends BaseServerEnhancer:
 
   requestWillBegin(requestContext): void ->
     super.requestWillBegin(requestContext)
-
-    { tracer } = this
-    globalContext = createContext()
-
-    { metadata, methodName } = requestContext
-
+    { metadata, fqMethodName } = requestContext
     headerMap = (metadata?.getMap() or {})
 
-    ///////////// extension header
-    extensionHeader = this.ExtensionHeader.setFromHeaderData(headerMap)
-    requestContext.extensionHeader = extensionHeader
+    // Create context, restoring parent context from headers sent over wire
+    context = Context.push({
+      type: 'grpc'
+      base: this.baseContext
+      parent: {
+        headers: headerMap
+      }
+    })
+    requestContext.context = context
 
-    ///////////// OpenTracing context
-    wireCtx = tracer.extract(opentracing.FORMAT_HTTP_HEADERS, headerMap)
-    span = if wireCtx:
-      tracer.startSpan(methodName, {childOf: wireCtx})
-    else:
-      tracer.startSpan(methodName)
-    globalContext.openTracingSpan = span
-    requestContext.openTracingSpan = span
+    // Start a new opentracing span that will last the length of the request
+    context.tracing.startSpan({
+      name: fqMethodName
+      reference: {
+        relationship: 'parent'
+        headers: headerMap
+        context: context.parent
+      }
+    })
 
-    span.setTag("span.kind", "server")
-    span.setTag("component", "grpc")
-    span.log({event: "request_received"})
+    // Set up initial span data and logs
+    context.tracing.span.setTag('span.kind', 'server')
+    log.tag('component', 'grpc')
+    log.tag('grpc.method', fqMethodName)
+    log.trace({event: "request_received"})
 
   requestDidEnd(requestContext): void ->
     super.requestDidEnd(requestContext)
 
-    { error, methodName, result } = requestContext
-    // if error:
-    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "error:", error)
-    // elif result:
-    //   debug("TracingServerEnhancer.requestDidEnd:", methodName, "result:", result)
-
-    span = requestContext.openTracingSpan
-    if not span: return
+    { error, context } = requestContext
+    // Implicit context is lost when requestWillEnd; restore it so
+    // we can log any errors here.
+    logHere = log.useContext(context)
 
     if error:
-      // Flag span as erroneous
-      span.setTag("error", true)
-      span.setTag("sampling.priority", 1)
-
-      // Log error event
-      logData = { event: "error", "error.message": error.message }
-      if error instanceof CommonError:
-        marshalledError = (new PlainObjectMarshal()).marshalError(error)
-        logData["error.dump"] = error.dump()
-        logData["error.status"] = error.getStatusName()
-        logData["error.retry"] = if error.retry: true else: false
-        logData["error.class"] = marshalledError.errorClass
-        logData["error.object"] = marshalledError
-      else:
-        logData["error.dump"] = error.stack
-
-      log.error(error.message, logData)
+      logHere.error({error})
     else:
-      span.log({event: "request_finished"})
+      logHere.trace({event: "request_finished"})
 
-    span.finish()
+    context.tracing?.finishSpan()

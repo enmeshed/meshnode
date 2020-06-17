@@ -30,6 +30,7 @@ export loadRoutesFromWebpackContext(context, router, opts = {}): void ->
 
   debug('loadRoutesFromWebpackContext: loader data:', splitKeys)
   enumerateRoutes(basePath, splitKeys, context, router)
+  router
 
 // Recursive portion of the route-enumeration algorithm
 export enumerateRoutes(basePath, split, req, router): void ->

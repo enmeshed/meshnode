@@ -7,7 +7,6 @@ import { ServerEnhancer } from './util/ServerEnhancer'
 import '../Protocols'
 
 grpc = require('@grpc/grpc-js')
-jaegerClient = require('jaeger-client')
 
 class GrpcServicePort extends GenericServicePort:
   static providerName = "grpc.service.port"
@@ -16,11 +15,10 @@ class GrpcServicePort extends GenericServicePort:
     "protos": "protocols"
     "mgr": Dependency.weak("grpc.service.manager")
     "errorCodec": "grpc.errorCodec"
-    "ExtensionHeader": "extensionHeader"
   })
 
   startService(): void -/>
-    { log, Config, service, bindings } = this
+    { Config, service, bindings } = this
     { provider } = this.node
 
     // Verify and load protocols
@@ -30,6 +28,7 @@ class GrpcServicePort extends GenericServicePort:
         throw new errors.UnimplementedError(`GrpcServicePort.init(): service ${this.serviceName} does not implement requred protocol ${proto}`)
 
     { protos } = this
+    debugger
     <- protos.findAll(...protocols)
 
     // Determine port number
@@ -42,14 +41,15 @@ class GrpcServicePort extends GenericServicePort:
       service.port
 
     // Create server
-    // Create Jaeger tracer for this service
-    this.tracer = jaegerClient.initTracer(
-      {
-        serviceName: service.name
-      }
-    )
+    // Create root context for this service
+    this.baseContext = Context.create({
+      base: Context.global()
+      type: 'grpc'
+    })
+    this.baseContext.tracing.setTracer({tracer: `grpc:${service.name}`})
+
     baseServer = new grpc.Server()
-    enhServer = new ServerEnhancer(baseServer, this.tracer, this.errorCodec, this.extensionHeader)
+    enhServer = new ServerEnhancer(baseServer, this.baseContext, this.errorCodec)
     this.server = enhServer
 
     // Bind handlers to server

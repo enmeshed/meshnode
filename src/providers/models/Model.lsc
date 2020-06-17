@@ -1,0 +1,21 @@
+import { Provider, Container } from '@enmeshed/alpha'
+
+import './ModelManager'
+
+// Directly access managed models
+export class Model extends Provider:
+  static providerName = "model"
+  static dependencies = {
+    "mgr": "model.manager"
+  }
+
+  static injectDependencies(deps, setupContext) -/>
+    { mgr } = deps
+    modelName = setupContext.getNameArg()
+    model <- mgr.get(modelName)
+    model
+
+  static init(resource): void -/>
+    Container.retain(resource)
+
+Container.provide(Model)

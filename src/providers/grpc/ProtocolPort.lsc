@@ -1,0 +1,20 @@
+// Locate a speaker of a specific protocol and connect.
+
+import { errors } from '@enmeshed/errors'
+import { Alias, Container } from '@enmeshed/alpha'
+
+export class GrpcProtocolPort extends Alias:
+  static providerName = "grpc.client.protocol"
+  static dependencies = {
+    "mgr": "grpc.client.manager"
+  }
+
+  static resolveAlias(deps, setupContext) -/>
+    { mgr } = deps
+    { namespace } = setupContext
+    protocolName = setupContext.getNameArg()
+    serviceName <- mgr.serviceNameForProtocol(protocolName)
+    port <- namespace.resolve(`grpc.client.port:${serviceName}:${protocolName}`)
+    port
+
+Container.provide(GrpcProtocolPort)

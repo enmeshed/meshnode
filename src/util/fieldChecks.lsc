@@ -1,0 +1,64 @@
+export checks(obj, ...checks): void ->
+  if (not obj) or typeof(obj) != 'object':
+    throw new errors.MissingArgumentError("object")
+
+  for elem check in checks:
+    check(obj)
+
+export checkObject(field, ...subchecks): void ->
+  (obj): void ->
+    v = obj?[field]
+    if (not v) or typeof(v) != 'object':
+      throw new errors.InvalidArgumentError(field, "expected an object")
+
+    for elem check in subchecks:
+      check(v)
+
+export checkString(field, isOptional, maxLen = 255, minLen = 1) ->
+  (obj): void ->
+    val = obj?[field]
+
+    if val~looseEq(null):
+      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+
+    if typeof(val) != "string":
+      throw new errors.InvalidArgumentError(field, 'expected a string')
+
+    if val.length < minLen:
+      throw new errors.InvalidArgumentError(field, `string too short, minimum length ${minLen}`)
+
+    if val.length > maxLen:
+      throw new errors.InvalidArgumentError(field, `string too long, maximum length ${maxLen}`)
+
+export checkOption(field, isOptional, ...opts) ->
+  (obj): void ->
+    val = obj?[field]
+
+    if val~looseEq(null):
+      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+
+    if typeof(val) != "string":
+      throw new errors.InvalidArgumentError(field, `expected a string`)
+
+    if opts.indexOf(val) == -1:
+      throw new errors.InvalidArgumentError(field, `must be one of ${opts.join(',')}`)
+
+export checkStringArray(field, isOptional, maxLen = 255, minLen = 1) ->
+  (obj): void ->
+    val = obj?[field]
+
+    if val~looseEq(null):
+      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+
+    if not Array.isArray(val):
+      throw new errors.InvalidArgumentError(field, `expected string array`)
+
+    for idx i, elem e in val:
+      if typeof(e) != 'string':
+        throw new errors.InvalidArgumentError(`${field}[${i}]`, `expected string`)
+
+      if e.length < minLen:
+        throw new errors.InvalidArgumentError(`${field}[${i}]`, `string too short, minimum length ${minLen}`)
+
+      if e.length > maxLen:
+        throw new errors.InvalidArgumentError(`${field}[${i}]`, `string too long, maximum length ${maxLen}`)

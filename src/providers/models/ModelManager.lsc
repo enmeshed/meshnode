@@ -1,0 +1,118 @@
+import { Provider, Container } from '@enmeshed/alpha'
+import { PooledConnectionManager } from './util/PooledConnectionManager'
+import { errors } from '@enmeshed/errors'
+import { MySQLBackend } from '@ormojo/mysql'
+import { typeFrom } from '@ormojo/ephraim'
+
+injectMethods(model, backend): void ->
+  model.create = (data, opts) ->
+    backend.create(model, data, opts)
+
+  model.destroyById = (id, opts) ->
+    backend.destroyById(model, id, opts)
+
+  model.destroyByQuery = (q) ->
+    backend.destroyByQuery(q)
+
+  model.createQuery = (typeless) ->
+    if typeless:
+      backend.createQuery()
+    else:
+      backend.createQuery().setType(model)
+
+  model.find(query) ->
+    backend.find(query)
+
+export class ModelManager extends Provider:
+  static providerName = "model.manager"
+  static dependencies = {
+    "mysql": "mysql"
+    "elasticsearch": "elasticsearch"
+  }
+
+  // Load-time prebindings
+  static loaded = null
+  static prebindings = []
+
+  static defaultBindingOptions = {
+    injectMethods: true
+  }
+
+  static bind(clazz, opts) ->
+    if this.loaded:
+      this.loaded.bind(clazz, opts)
+    else:
+      this.prebindings.push([clazz, opts])
+
+  // Backends
+  mysqlBackend = null
+  esBackend = null
+
+  init(): void -/>
+    // Prevent manager resources from being freed until app shutdown.
+    Container.retain(this)
+    this.mysqlBackend = new MySQLBackend(null, {
+      connectionManager: new PooledConnectionManager(this.mysql)
+      database: this.mysql.getMysqlOptions().database
+      log: log
+    })
+
+    // Process prebindings
+    this.constructor.loaded = this
+    for elem binding in this.constructor.prebindings:
+      this.bind(binding[0], binding[1])
+    this.constructor.prebindings = null
+
+  destroy(): void -/>
+    <- this.mysqlBackend.shutdown()
+
+  // Check if backends need migrated for data model changes
+  getMigrationPlan() -/>
+    sqlMig = this.mysqlBackend.createMigration()
+    <- sqlMig.prepare()
+    {
+      sql: sqlMig.getMigrationPlan()
+    }
+
+  // Manage bindings
+  bindings = new Map()
+  bindingsByName = {}
+
+  bind(clazz, opts): void ->
+    now opts = Object.assign({}, this.constructor.defaultBindingOptions, opts)
+    ty = typeFrom(clazz)
+    name = ty.name
+    if this.bindings.has(clazz) or this.bindingsByName[name]:
+      throw new errors.InternalError(`ModelManager: ${name} is already bound`)
+    backend = match opts.backend:
+      | 'mysql': this.mysqlBackend
+      | else: throw new Error("ModelManager: invalid backend")
+    log.trace(`ModelManager: binding ${name} to ${opts.backend}`)
+    backend.bind(clazz, opts.bindings)
+    if opts.injectMethods:
+      injectMethods(clazz, backend)
+    this.bindings.set(clazz, clazz)
+    this.bindingsByName[name] = clazz
+
+  load(nameOrClass) -/>
+    null
+
+  // Get binding
+  // TODO: Dynamic loading of bindings
+  get(nameOrClass) -/>
+    if looseEq(nameOrClass, null):
+      throw new errors.InternalError(`ModelManager.get: name was nullish`)
+
+    let binding = if typeof(nameOrClass) == 'string':
+      this.bindingsByName[nameOrClass]
+    else:
+      this.bindings.get(nameOrClass)
+
+    if not binding:
+      now binding <- this.load(nameOrClass)
+      if not binding:
+        throw new errors.InternalError(`ModelManager: no model binding`)
+
+    binding
+
+Container.provide(ModelManager)

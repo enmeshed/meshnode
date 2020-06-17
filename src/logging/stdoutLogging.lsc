@@ -1,6 +1,5 @@
 import { LogWriter } from './Logging'
-
-safeJsonStringify = require('safe-json-stringify')
+import util from 'util'
 
 export class StdoutLogWriter extends LogWriter:
   writeToLog(data) ->
@@ -15,7 +14,7 @@ export class StdoutLogWriter extends LogWriter:
     delete rec.levelNumber
 
     fTime = (new Date(time)).toISOString()
-    rest = safeJsonStringify(rec)
+    rest = util.format(rec)
 
     process.stdout.write(`[${fTime}] ${level}: ${message} ${rest}\n`)
 

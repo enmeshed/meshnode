@@ -7,8 +7,22 @@ export class Job:
   // Underlying Bull job object
   _nativeJob = null
 
+  // Number of concurrent instances that can run per worker node
+  static concurrency = 1
+
+  static getQueueName(): string ->
+    this.queueName
+
+  static fromNativeJob(nativeJob) ->
+    job = new this()
+    job.setNativeJob(nativeJob)
+    job.setData(nativeJob.data)
+    job
+
+  getTracingData() -> this._tracing
+
   getQueueName(): string ->
-    this.constructor.queueName
+    this.constructor.getQueueName()
 
   getData() ->
     Object.assign({}, this)
@@ -16,10 +30,14 @@ export class Job:
   getOptions() ->
     this.constructor.jobOptions
 
+  setData(data): void ->
+    Object.assign(this, data)
+
   setNativeJob(nj): void ->
     this._nativeJob = nj
 
 export class Jobs extends Provider:
+  static providerName = "jobs"
   static dependencies = {
     "redis": "redis"
     "events": "events"
@@ -39,8 +57,19 @@ export class Jobs extends Provider:
 
   queues = {}
 
-  init(): void -/>
+  init(): void -/> {
+    log.info("initializing job subsystem")
+    Container.retain(this)
     { redis } = this
+
+    // Build base context for job subsystem
+    this.baseContext = Context.create({
+      base: Context.global()
+      type: 'jobs'
+    })
+    this.baseContext.tracing.setTracer({tracer: 'job'})
+
+    // Build redis queue options
     jobsOpts = this.constructor.options
     queueOpts = lodash.cloneDeep(jobsOpts.baseQueueOpts)
     if jobsOpts.reuseConnections:
@@ -56,31 +85,87 @@ export class Jobs extends Provider:
     else:
       queueOpts.redis = redis.getRedisOptions()
     this.queueOpts = queueOpts
+  } // init()
 
-    Container.retain(this)
 
   getQueue(name) ->
     if this.queues[name]:
       this.queues[name]
     else:
       log.info(`Creating new interface to job queue: ${name}`)
-      queue = new Queue(name)
+      queue = new Queue(name, this.queueOpts)
       queue.on('stalled', this.onJobStalled.bind(this, queue))
       this.queues[name] = queue
 
   onJobStalled(queue, job): void ->
-    log.warn("Job stalled", { jobQueue: queue.name, data: job.data })
-    this.events.fire("system.job.stalled", { jobQueue: queue.name, data: job.data })
+    log.warn({ jobQueue: queue.name, jobId: job.id, data: job.data }, "Job stalled")
+    this.events.fire("system.job.stalled", { jobQueue: queue.name, jobId: job.id, data: job.data })
 
   enqueueRaw(queueName, data, opts) ->
     queue = this.getQueue(queueName)
+
+    // Inject active context
+    // If we have OpenTracing data, inject it
+
     nextOpts = Object.assign({}, this.defaultJobOpts, opts)
     queue.add(data, nextOpts)
+
+  processRaw(queueName, concurrency, handler, JobClass) ->
+    queue = this.getQueue(queueName)
+    queue.process(concurrency, this.wrapHandler(handler, queueName, JobClass))
+
+  wrapHandler(handler, queueName, JobClass = Job) ->
+    { baseContext } = this
+    destinationName = `${queueName}`
+    wrappedHandler(job) -/>
+      { data } = job
+
+      // Establish async context for job
+      context = Context.push({
+        type: 'event'
+        base: baseContext
+        parent: {
+          relationship: 'followsFrom'
+          json: data?._context
+        }
+      })
+      context.tracing.startSpan({
+        name: destinationName
+        reference: {
+          relationship: 'followsFrom'
+          context: context.parent
+        }
+      })
+      log.tag('span.kind', 'consumer')
+      log.tag('message_bus.kind', 'job')
+      log.tag('message_bus.destination', destinationName)
+      log.trace({event: "processing_began"})
+
+      // Instantiate wrapped job class
+      wrappedJob = JobClass.fromNativeJob(job)
+
+      this.events.fire("system.job.started", { jobQueue: queueName, data })
+      // Call wrapped handler
+      try:
+        <- handler(wrappedJob)
+      catch err:
+        log.error({err})
+        // Discard jobs that encounter non-transient errors
+        if not err.retry:
+          log.info('discarding job for non-retriable error')
+          job.discard().catch((err) -> console.error("error while discarding job", err))
+      finally:
+        log.trace({event: 'processing_finished'})
+        this.events.fire("system.job.finished", { jobQueue: queueName, data })
+        context.tracing?.finishSpan()
 
   enqueue(job: Job) -/>
     nj <- this.enqueueRaw(job.getQueueName(), job.getData(), job.getOptions())
     job.setNativeJob(nj)
     job
+
+  process(JobClass, handler) ->
+    this.processRaw(JobClass.getQueueName(), JobClass.concurrency, handler, JobClass)
 
   destroy(): void -/>
     { redis } = this
@@ -88,4 +173,7 @@ export class Jobs extends Provider:
       log.info(`jobs: closing queues`)
       <- [...for val queue in this.queues: [queue.close()]]
     if this.storedConnections:
+      log.info(`jobs: closing redis conns`)
       <- [...for elem conn in this.storedConnections: [redis.disconnect(conn)]]
+
+Container.provide(Jobs)

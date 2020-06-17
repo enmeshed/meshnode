@@ -1,0 +1,21 @@
+// The Origin context item describes where a request originally came from
+import { ContextItem, Context } from './Context'
+
+export class Origin extends ContextItem:
+  static type = 'origin'
+  static unique = true
+  static heritable = true
+
+  static create(opts = {}) ->
+    o = new Origin()
+    Object.assign(o.payload, opts)
+    o
+
+  wasAdded(toContext): void ->
+    toContext.origin = this
+    if toContext.tracing:
+      for key k, val v in this.payload:
+        if not toContext.tracing.hasTag(k):
+          toContext.tracing.tag(k, v, true)
+
+Context.registerType(Origin)

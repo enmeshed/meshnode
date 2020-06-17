@@ -4,9 +4,6 @@ import { errors } from '@enmeshed/errors'
 import { GenericServicePort } from '../GenericServicePort'
 import { createFirstMiddleware, createLastErrorHandler } from './util/Middleware'
 
-import "../ExtensionHeader"
-
-jaegerClient = require('jaeger-client')
 express = require('express')
 http = require('http')
 deferred = require('p-defer')
@@ -15,24 +12,16 @@ class HttpServicePort extends GenericServicePort:
   static providerName = "http.service.port"
   static dependencies = Dependencies.union(super.dependencies, {
     "mgr": "http.service.manager"
-    "ExtensionHeader": "extensionHeader"
   })
 
   createApp(): void ->
-    // Create Jaeger tracer for this service
-    this.tracer = jaegerClient.initTracer(
-      {
-        serviceName: this.service.name
-      }
-    )
-
     app = express()
     // Assume service is behind some proxy layer.
     app.enable('trust proxy')
     // Disallow fingerprinting
     app.disable('x-powered-by')
     // Enable first-crack middleware
-    app.use(createFirstMiddleware(this.tracer, this.ExtensionHeader))
+    app.use(createFirstMiddleware(this.baseContext, this.service.name))
 
     this.app = app
 
@@ -40,11 +29,18 @@ class HttpServicePort extends GenericServicePort:
     { Config, service, bindings } = this
     { provider } = this.node
 
+    // Create base context for service
+    this.baseContext = Context.create({
+      base: Context.global()
+      type: `http`
+    })
+    this.baseContext.tracing.setTracer({tracer: `http:${service.name}`})
+
     // Determine port number
     portIndex = provider.getServiceOrdinal(service)
     if portIndex == null:
       throw new errors.InternalError(`HttpServicePort: port not found`)
-    port = Config.required("ports").host_base + portIndex
+    port = Config.required("ports", Object).host_base + portIndex
 
     // Setup express app
     this.createApp()

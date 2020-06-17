@@ -1,0 +1,69 @@
+// Distributed locking with redis
+import { Provider, Container } from '@enmeshed/alpha'
+import { errors } from '@enmesheed/errors'
+
+deferred = require('p-defer')
+
+acquireLock(client, lockName, expire, retryDelay, retryUntil, onLockAcquired, onAlreadyLocked) -> {
+  retry = -> {
+    setTimeout(
+      -> acquireLock(client, lockName, expire, retryDelay, retryUntil, onLockAcquired)
+      retryDelay
+    )
+  }
+
+  expireTime = (Date.now() + expire + 1)
+  client.set(lockName, expireTime, 'PX', expire, 'NX', function(err, result) {
+    if(err || result === null) {
+      if(retryDelay && (Date.now() < retryUntil)) return retry()
+      else return onAlreadyLocked()
+    }
+    onLockAcquired(expireTime)
+  })
+}
+
+export class Locking extends Provider:
+  static providerName = "locking"
+  static dependencies = {
+    "redis": "redis"
+  }
+
+  static keyPrefix = "lock."
+  static defaultExpire = 5000
+  static defaultRetryDelay = 50
+  static defaultRetryTimeout = 10000
+
+  init(): void -/>
+    Container.retain(this)
+    this.client <- this.redis.connection()
+
+  destroy(): void -/>
+    log.info(`stopping distributed locking`)
+    <- this.redis.disconnect(this.client)
+
+  lock(name, expire) ->
+    { client } = this
+    now expire = expire or this.constructor.defaultExpire
+    retryDelay = this.constructor.defaultRetryDelay
+    retryUntil = Date.now() + this.constructor.defaultRetryTimeout
+    lockName = this.constructor.keyPrefix + name
+    def = deferred()
+
+    acquiredLock(expireTime): void -> {
+      def.resolve({
+        release() ->
+          rdef = deferred()
+          if expireTime > Date.now():
+            client.del(lockName, -> rdef.resolve(undefined))
+          else:
+            rdef.resolve(undefined)
+          rdef.promise
+      })
+    }
+
+    didntAcquireLock(): void ->
+      def.reject(new errors.UnavailableError(`Could not acquire distributed lock: ${name}`))
+
+    acquireLock(client, name, expire, retryDelay, retryUntil, acquiredLock, didntAcquireLock)
+
+    def.promise

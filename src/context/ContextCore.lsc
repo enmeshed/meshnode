@@ -1,5 +1,4 @@
 { Contexty } = require('contexty')
-globalThis = require('globalthis')()
 
 let ctxContainer = null
 
@@ -23,9 +22,9 @@ export createContext() ->
 export getNode() ->
   getContext().node
 
-globalContext = createContext()
+export isGlobalContext(): boolean ->
+  getContext() == globalContext
 
-globalThis.getContext = getContext
-globalThis.createContext = createContext
+globalContext = createContext()
 
 export { globalContext }

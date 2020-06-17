@@ -1,0 +1,208 @@
+import { errors } from '@enmeshed/errors'
+import { getContext, createContext, globalContext } from './ContextCore'
+
+export class Context:
+  static types = {}
+
+  static registerType(typeClass): void ->
+    this.types[typeClass.type] = typeClass
+
+  static typeForName(name) ->
+    t = this.types[name or '']
+    if t: t else: this.types['generic']
+
+  static current() ->
+    getContext()._ctx
+
+  static global() ->
+    globalContext._ctx
+
+  static push(opts = {}) ->
+    if not opts.base: opts.base = this.current()
+    ctx = this.create(opts)
+    coreContext = createContext()
+    coreContext._ctx = ctx
+    ctx
+
+  static create(opts = {}) ->
+    { base, parent } = opts
+
+    actualParent = if parent instanceof Context:
+      parent
+    elif parent?.json:
+      Context.fromJSON(parent.json)
+    elif parent?.headers:
+      try:
+        Context.fromHeaders(parent.headers)
+      catch err:
+        log.error({err}, 'error while restoring context headers')
+        null
+    else:
+      null
+
+    ctx = new Context()
+    ctx.type = opts.type or base?.type or actualParent?.type or 'generic'
+    ctx.parent = actualParent
+    ctx.parent_relationship = parent?.relationship or 'parent'
+    ctx.base = base
+    if base: ctx.inherits(base, 'base')
+    if actualParent: ctx.inherits(actualParent, 'parent')
+
+    if opts.items:
+      for elem e in opts.items: ctx.apply(e)
+
+    ctx
+
+  type = "generic"
+  items = []
+  base: Context = null
+  parent: Context = null
+  parent_relationship = "parent"
+
+  static fromJSON(json) ->
+    ctx = new Context()
+    ctx.type = json.type or 'generic'
+    for elem item in (json.items or []):
+      ctx.apply(ContextItem.fromJSON(item))
+    // if json.parent:
+    //   ctx.parent = Context.fromJSON(json.parent)
+    //   ctx.parent_relationship = json.parent_relationship or "parent"
+    ctx
+
+  toJSON() -> {
+    type: this.type
+    items: [...for elem item in this.items:
+      json = item.toJSON()
+      if json: [json]
+    ]
+    // ...if this.parent: {
+    //   parent: this.parent.toJSON()
+    //   parent_relationship: this.parent_relationship
+    // }
+  }
+
+  static fromHeaders(headersCarrier) ->
+    data = headersCarrier?['x-mesh-context']
+    if not data:
+      log.trace('Context.fromHeaders: no x-mesh-context headers present')
+      return null
+    let parsed = null
+    try:
+      buf = Buffer.from(data, 'base64')
+      now parsed = JSON.parse(buf.toString())
+    catch err:
+      throw new errors.InternalError(`Context.fromHeaders: could not parse header data [${data}]`, err)
+    this.fromJSON(parsed)
+
+  // Convert a Context into HTTP header information.
+  toHeaders(headersCarrier): void ->
+    if this.tracing: this.tracing.toHeaders(headersCarrier)
+    headerString = JSON.stringify(this.toJSON())
+    buf = Buffer.from(headerString)
+    b64header = buf.toString('base64')
+    headersCarrier['x-mesh-context'] = b64header
+
+  inherits(otherContext, relationship): void ->
+    for elem item in otherContext.items:
+      if item.constructor.heritable:
+        item.willBeInheritedBy(this, otherContext, relationship)
+
+  findIndex(type) ->
+    if typeof(type) != 'string':
+      now type = type.type
+
+    this.items.findIndex(x -> x.type == type)
+
+  findLocal(type) ->
+    idx = this.findIndex(type)
+    if idx > -1:
+      this.items[idx]
+    else:
+      null
+
+  // Apply a ContextItem to this context. For unique items, replaces an existing
+  // item of that type
+  apply(item): void ->
+    if item.constructor.unique:
+      idx = this.findIndex(item.type)
+      if idx > -1:
+        this.items[idx] = item
+        item.wasAdded(this, true)
+        return
+
+    this.items.push(item)
+    item.wasAdded(this, false)
+
+  // Find ALL items of the given context item type
+  findAll(type, bag = []) ->
+    if typeof(type) != 'string':
+      now type = type.type
+
+    for elem item in this.items:
+      if item.type == type:
+        bag.push(item)
+
+    if this.parent: this.parent.findAll(type, bag)
+
+    bag
+
+  // Find the nearest item of the given context item type
+  findOne(type) ->
+    if typeof(type) != 'string':
+      now type = type.type
+
+    for elem item in this.items:
+      if item.type == type:
+        return item
+
+    if this.parent: return this.parent.findOne(type)
+
+    null
+
+export class ContextItem:
+  static type = 'generic'
+  // Can there only be one item of this type per context?
+  static unique = false
+  // Is this item heritable to subcontexts?
+  static heritable = false
+
+  type = this.constructor.type
+  // Expiry time for cached data, or 0 for never expires.
+  valid_until = 0
+  // Data payload.
+  payload = null
+
+  constructor(payload = {}, valid_until = 0) ->
+    this.payload = payload
+    this.valid_until = valid_until
+
+  static fromJSON(json) ->
+    clazz = Context.typeForName(json.type)
+    item = new clazz()
+    item.fromJSON(json)
+
+  toJSON() -> {
+    type: this.type
+    valid_until: this.valid_until
+    payload: this.payload
+  }
+
+  fromJSON(json) ->
+    this.type = json.type
+    this.valid_until = json.valid_until or 0
+    this.payload = json.payload or {}
+    this
+
+  isValid(t = Date.now()) ->
+    vu = this.valid_until
+    if (vu == 0) or (vu > t): true else: false
+
+  clone() -> ContextItem.fromJSON(this.toJSON())
+
+  wasAdded(toContext, didReplace): void -> return
+
+  willBeInheritedBy(targetContext, sourceContext, relationship): void ->
+    // Generic inheritance: just apply a clone of this context item
+    targetContext.apply(this.clone())
+
+Context.registerType(ContextItem)

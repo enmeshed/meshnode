@@ -33,6 +33,12 @@ export class MysqlClientPort extends GenericClientPort:
     this.pools[name] = undefined
     <- pool.end()
 
+  getPool(name) ->
+    p = this.pools[name]
+    if not p:
+      throw new errors.InternalError(`pool ${name} does not exist`)
+    p
+
   getPoolNames() -> Object.keys(this.pools)
 
   getReadConnection(): Promise<any> ->
@@ -63,7 +69,14 @@ export class MysqlClientPort extends GenericClientPort:
       database: provider.database
       user: provider.user
       password: Config.required(provider.passwordSecretId)
+      multipleStatements: true
+      supportBigNumbers: true
+      timezone: '+00:00'
+      dateStrings: true
+      bigNumberStrings: true
     }
+
+    <- this.createPool("readwrite")
 
   stopClient(): void -/>
     log.info(`stopping MySQL client for ${this.service.name}`)

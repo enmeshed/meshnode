@@ -3,7 +3,6 @@ import { errors } from '@enmeshed/errors'
 import { ClientEnhancer } from './util/ClientEnhancer'
 
 import "./ErrorCodec"
-import "../ExtensionHeader"
 
 mgr$ = Symbol('client_manager')
 
@@ -17,11 +16,10 @@ class GrpcClientPort extends Provider:
     "Config": "config"
     "protos": "protocols"
     "errorCodec": "grpc.errorCodec"
-    "ExtensionHeader": "extensionHeader"
   }
 
   static injectDependencies(deps, setupContext) -/>
-    { mgr, Config, protos, errorCodec, ExtensionHeader } = deps
+    { mgr, Config, protos, errorCodec } = deps
 
     [ serviceName, protocolName ] = splitName(setupContext.getNameArg())
     if (not serviceName):
@@ -41,8 +39,8 @@ class GrpcClientPort extends Provider:
       `${service.provider.dns}:${service.port}`
 
     log.trace(`creating grpc client for service ${serviceName}, protocol ${protocolName} at address ${url}`)
-    baseClient <- protos.client(this.url)
-    client = new ClientEnhancer(baseClient, errorCodec, ExtensionHeader)
+    baseClient <- protos.client(protocolName, url)
+    client = new ClientEnhancer(baseClient, errorCodec)
     client[mgr$] = mgr
     client
 

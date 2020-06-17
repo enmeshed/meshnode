@@ -11,6 +11,7 @@ class GrpcClientManager extends GenericClientManager:
   static dependencies = Dependencies.union(super.dependencies, {
     "protos": "protocols"
   })
+  portProviderName = "grpc.client.port"
 
   // Locate a service that speaks the given protocol. If there are no services
   // or multiple services, the search fails.

@@ -1,8 +1,20 @@
-import { Container, toProvider } from '@enmeshed/alpha'
+import { Container, Namespace, toProvider } from '@enmeshed/alpha'
 import { DynamicProtocols } from '@enmeshed/grpc'
 import path from 'path'
 
 import './Config'
+
+let bootstrapped = null
+let bootstrapReqs = {}
+
+export class Protocols:
+  static require(...reqs): void -/>
+    if not bootstrapped:
+      for elem req in reqs:
+        bootstrapReqs[req] = true
+    else:
+      for elem req in reqs:
+        <- bootstrapped.require(req)
 
 Container.provide(toProvider({
   name: "protocols"
@@ -11,8 +23,13 @@ Container.provide(toProvider({
     "Config": "config"
   }
 
-  init(): void -/>
-    Container.retain(this)
+  init(rsrc): void -/>
+    Container.retain(rsrc)
+    now bootstrapped = rsrc
+    // Require any protocols that were requested during the bootstrap phase
+    for key k in bootstrapReqs:
+      <- rsrc.require(k)
+    now bootstrapReqs = {}
 
   injectDependencies(deps) -/>
     { Config } = deps
