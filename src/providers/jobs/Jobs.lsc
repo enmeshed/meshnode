@@ -117,7 +117,7 @@ export class Jobs extends Provider:
     nextData._context = context.toJSON()
 
     nextOpts = Object.assign({}, this.defaultJobOpts, opts)
-    queue.add(data, nextOpts)
+    queue.add(nextData, nextOpts)
 
   processRaw(queueName, concurrency, handler, JobClass) ->
     log.trace(`processing jobs from queue ${queueName}`)
@@ -125,7 +125,7 @@ export class Jobs extends Provider:
     queue.process(concurrency, this.wrapHandler(handler, queueName, JobClass))
 
   wrapHandler(handler, queueName, JobClass = Job) ->
-    { baseContext } = this
+    { baseContext, events } = this
     destinationName = `${queueName}`
     wrappedHandler(job) -/>
       { data } = job
@@ -149,16 +149,15 @@ export class Jobs extends Provider:
       log.tag('span.kind', 'consumer')
       log.tag('message_bus.kind', 'job')
       log.tag('message_bus.destination', destinationName)
-      log.trace({event: "processing_began"})
+      log.trace({event: "processing_began"}, "processing job with data", { data })
       logHere = log.useContext(context)
-
-      // Instantiate wrapped job class
-      wrappedJob = JobClass.fromNativeJob(job)
-
-      this.events.fire("system.job.started", { jobQueue: queueName, data })
       // Call wrapped handler
       try:
+        // Instantiate wrapped job class
+        wrappedJob = JobClass.fromNativeJob(job)
+        events.fire("system.job.started", { jobQueue: queueName, data })
         <- handler(wrappedJob)
+        events.fire("system.job.completed", { jobQueue: queueName, data })
       catch err:
         logHere.error({err})
         // Discard jobs that encounter non-transient errors
@@ -167,7 +166,6 @@ export class Jobs extends Provider:
           job.discard().catch((err) -> logHere.error({err}, "error while discarding job"))
       finally:
         logHere.trace({event: 'processing_finished'})
-        this.events.fire("system.job.finished", { jobQueue: queueName, data })
         context.tracing?.finishSpan()
 
   enqueue(job: Job) -/>

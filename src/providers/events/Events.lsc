@@ -61,6 +61,8 @@ export class Events extends Provider:
     context = Context.current()
     nextData._context = context.toJSON()
 
+    log.trace(`firing event: '${eventName}'`)
+
     this.producer.send({
       topic: this.kafka.topic(eventName)
       messages: [
