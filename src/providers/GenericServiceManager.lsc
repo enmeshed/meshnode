@@ -9,9 +9,9 @@
 // specific service. The generic interface provides a Map<string, any>-type
 // structure.
 import { Provider, Container, Resources, Namespace } from '@enmeshed/alpha'
+import { errors } from '@enmeshed/errors'
+import { deferredWithTimeout } from '../util/deferred'
 import "./Node"
-
-deferred = require('p-defer')
 
 export class GenericServiceManager extends Provider:
   static dependencies = {
@@ -45,12 +45,12 @@ export class GenericServiceManager extends Provider:
 
   bind(serviceName, val): void ->
     if not this.bindings[serviceName]:
-      this.bindings[serviceName] = deferred()
+      this.bindings[serviceName] = deferredWithTimeout(20000)
     this.bindings[serviceName].resolve(val)
 
   awaitBindings(serviceName) ->
     if not this.bindings[serviceName]:
-      this.bindings[serviceName] = deferred()
+      this.bindings[serviceName] = deferredWithTimeout(20000, errors.InternalError, `Timed out while awaiting bindings for ${serviceName}`)
     this.bindings[serviceName].promise
 
   // Wrap common Node services
@@ -76,4 +76,5 @@ export class GenericServiceManager extends Provider:
         // to retain it here.
         [Namespace.resolve(`${this.portProviderName}:${service.name}`)]
     ]
+
     Promise.all(promises)

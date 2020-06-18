@@ -1,0 +1,32 @@
+export deferred() ->
+  def = { status: 'pending' }
+  def.promise = new Promise((resolve, reject) => {
+    def.resolve = (result): void ->
+      if def.status == 'pending':
+        def.status = 'resolved'
+        resolve(result)
+
+    def.reject = (err): void ->
+      if def.status == 'pending':
+        def.status = 'rejected'
+        reject(err)
+      else:
+        def.multipleRejections = err
+  })
+  def
+
+export deferredWithTimeout(ms, ...args) ->
+  def = deferred()
+  setTimeout(
+    -> {
+      if def.status == 'pending':
+        if args.length == 0:
+          def.reject(new Error('timeout'))
+        elif typeof(args[0]) == 'string':
+          def.reject(new Error(args[0]))
+        else:
+          def.reject(new (args[0])(...args.slice(1)))
+    }
+    ms
+  )
+  def
