@@ -23,22 +23,28 @@
     "lint:fix": "eslint --fix --ext .js,.lsc src"
   },
   "dependencies": {
+    "@enmeshed/grpc": "^0.2.5",
+    "bull": "^3.14.0",
+    "kafkajs": "^1.11.0",
+    "mysql2": "^2.1.0",
+    "express": "^4.17.1",
+    "jaeger-client": "^3.17.1",
+    "ioredis": "^4.14.1",
+    "@elastic/elasticsearch": "^7.5.0",
+
     "@enmeshed/mesh-reflection": "^0.2.2",
     "@enmeshed/mesh-reflection-file-watcher": "^0.2.1",
     "@enmeshed/errors": "^1.0.3",
     "@enmeshed/alpha": "^0.4.3",
     "debug": "^4.1.1",
-    "express": "^4.17.1",
     "cookie-parser": "^1.4.4",
     "body-parser": "^1.19.0",
     "p-defer": "^3.0.0",
     "contexty": "^1.0.0",
     "opentracing": "^0.14.4",
-    "jaeger-client": "^3.15.0",
     "lodash": "^4.17.15",
     "safe-json-stringify": "^1.2.0",
     "chalk": "^3.0.0",
-    "bull": "^3.12.1",
     "globalthis": "^1.0.1"
   },
   "devDependencies": {
