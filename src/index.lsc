@@ -19,3 +19,7 @@ import './providers/grpc/ClientManager'
 import './providers/grpc/ServiceManager'
 import './providers/grpc/ProtocolPort'
 import './providers/events/Events'
+import './providers/models/Model'
+
+import * as fieldChecks from './util/fieldChecks'
+export { fieldChecks }

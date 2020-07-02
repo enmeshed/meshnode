@@ -1,3 +1,4 @@
+import { Container } from '@enmeshed/alpha'
 import { AnyClientPort } from '../AnyClientPort'
 import './ClientManager'
 
@@ -6,3 +7,5 @@ export class AnyMysqlClientPort extends AnyClientPort:
   static dependencies = {
     "mgr": "mysql.client.manager"
   }
+
+Container.provide(AnyMysqlClientPort)

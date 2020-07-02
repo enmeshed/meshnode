@@ -1,8 +1,12 @@
 import { Provider, Container } from '@enmeshed/alpha'
-import { PooledConnectionManager } from './util/PooledConnectionManager'
+import { PooledConnectionManager } from '../mysql/util/PooledConnectionManager'
 import { errors } from '@enmeshed/errors'
 import { MySQLBackend } from '@ormojo/mysql'
+import { ESBackend } from '@ormojo/elasticsearch'
 import { typeFrom } from '@ormojo/ephraim'
+
+import '../mysql/AnyClientPort'
+import '../elasticsearch/AnyClientPort'
 
 injectMethods(model, backend): void ->
   model.create = (data, opts) ->
@@ -30,19 +34,9 @@ export class ModelManager extends Provider:
     "elasticsearch": "elasticsearch"
   }
 
-  // Load-time prebindings
-  static loaded = null
-  static prebindings = []
-
   static defaultBindingOptions = {
     injectMethods: true
   }
-
-  static bind(clazz, opts) ->
-    if this.loaded:
-      this.loaded.bind(clazz, opts)
-    else:
-      this.prebindings.push([clazz, opts])
 
   // Backends
   mysqlBackend = null
@@ -51,28 +45,38 @@ export class ModelManager extends Provider:
   init(): void -/>
     // Prevent manager resources from being freed until app shutdown.
     Container.retain(this)
+
     this.mysqlBackend = new MySQLBackend(null, {
       connectionManager: new PooledConnectionManager(this.mysql)
       database: this.mysql.getMysqlOptions().database
       log: log
     })
 
-    // Process prebindings
-    this.constructor.loaded = this
-    for elem binding in this.constructor.prebindings:
-      this.bind(binding[0], binding[1])
-    this.constructor.prebindings = null
+    this.esBackend = new ESBackend(this.elasticsearch, { log: log })
 
   destroy(): void -/>
-    <- this.mysqlBackend.shutdown()
+    <- [this.mysqlBackend.shutdown(), this.esBackend.shutdown()]
+
 
   // Check if backends need migrated for data model changes
   getMigrationPlan() -/>
     sqlMig = this.mysqlBackend.createMigration()
-    <- sqlMig.prepare()
+    esMig = this.esBackend.createMigration()
+    <- [sqlMig.prepare(), esMig.prepare()]
     {
-      sql: sqlMig.getMigrationPlan()
+      mysql: sqlMig.getMigrationPlan()
+      elasticsearch: esMig.getMigrationPlan()
     }
+
+  doMigration(backendId): void -/>
+    backend = match backendId:
+      | 'mysql': this.mysqlBackend
+      | 'elasticsearch': this.esBackend
+      | else: throw new Error('invalid backend')
+
+    mig = backend.createMigration()
+    <- mig.prepare()
+    <- mig.execute()
 
   // Manage bindings
   bindings = new Map()
@@ -82,20 +86,22 @@ export class ModelManager extends Provider:
     now opts = Object.assign({}, this.constructor.defaultBindingOptions, opts)
     ty = typeFrom(clazz)
     name = ty.name
+    log.trace(`ModelManager: binding ${name} to ${opts.backend}`)
     if this.bindings.has(clazz) or this.bindingsByName[name]:
       throw new errors.InternalError(`ModelManager: ${name} is already bound`)
     backend = match opts.backend:
       | 'mysql': this.mysqlBackend
-      | else: throw new Error("ModelManager: invalid backend")
-    log.trace(`ModelManager: binding ${name} to ${opts.backend}`)
+      | 'elasticsearch': this.esBackend
+      | else: throw new errors.InternalError("ModelManager: invalid backend")
     backend.bind(clazz, opts.bindings)
     if opts.injectMethods:
       injectMethods(clazz, backend)
     this.bindings.set(clazz, clazz)
     this.bindingsByName[name] = clazz
 
-  load(nameOrClass) -/>
-    null
+  bindAll(bindings): void ->
+    for val v in bindings:
+      this.bind(v.model, v)
 
   // Get binding
   // TODO: Dynamic loading of bindings
@@ -103,15 +109,13 @@ export class ModelManager extends Provider:
     if looseEq(nameOrClass, null):
       throw new errors.InternalError(`ModelManager.get: name was nullish`)
 
-    let binding = if typeof(nameOrClass) == 'string':
-      this.bindingsByName[nameOrClass]
+    let [binding, name] = if typeof(nameOrClass) == 'string':
+      [this.bindingsByName[nameOrClass], nameOrClass]
     else:
-      this.bindings.get(nameOrClass)
+      [this.bindings.get(nameOrClass), typeFrom(nameOrClass).name]
 
     if not binding:
-      now binding <- this.load(nameOrClass)
-      if not binding:
-        throw new errors.InternalError(`ModelManager: no model binding`)
+      throw new errors.InternalError(`ModelManager: no model binding for ${name}`)
 
     binding
 

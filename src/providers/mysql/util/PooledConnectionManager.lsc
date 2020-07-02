@@ -1,14 +1,17 @@
 import { MySQLConnectionManager } from '@ormojo/mysql'
 
+mysql = require('mysql2')
+
 export class PooledConnectionManager extends MySQLConnectionManager:
   constructor(clientPort) ->
+    super(mysql)
     this.pool = clientPort.getPool("readwrite")
 
   openConnection() ->
     this.pool.getConnection()
 
   closeConnection(conn) -/>
-    this.pool.releaseConnection(conn)
+    conn.release()
 
   shutdown(): Promise<any> ->
     Promise.resolve(true)

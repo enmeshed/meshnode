@@ -1,5 +1,5 @@
 import { errors } from '@enmeshed/errors'
-import { Dependencies, Dependency } from '@enmeshed/alpha'
+import { Dependencies, Dependency , Container } from '@enmeshed/alpha'
 import { GenericClientPort } from '../GenericClientPort'
 
 mysql = require('mysql2')
@@ -19,7 +19,7 @@ export class MysqlClientPort extends GenericClientPort:
     if typeof(name) != 'string' or (not name):
       throw new errors.InvalidArgumentError('name', 'must be a nonempty string')
 
-    if this.poolsByName[name]:
+    if this.pools[name]:
       throw new errors.AlreadyExistsError("pool", name)
 
     conf = Object.assign({}, this.dbConf, overrides)
@@ -82,3 +82,5 @@ export class MysqlClientPort extends GenericClientPort:
     log.info(`stopping MySQL client for ${this.service.name}`)
     <- [...for elem poolName in this.getPoolNames(): [this.destroyPool(poolName)]]
     return
+
+Container.provide(MysqlClientPort)

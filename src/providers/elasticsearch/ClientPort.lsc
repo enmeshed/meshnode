@@ -1,5 +1,5 @@
 import { errors } from '@enmeshed/errors'
-import { Provider, Dependency } from '@enmeshed/alpha'
+import { Provider, Dependency, Container } from '@enmeshed/alpha'
 
 { Client } = require('@elastic/elasticsearch')
 
@@ -12,7 +12,7 @@ export class ElasticsearchClientPort extends Provider:
   }
 
   static injectDependencies(dependencyMap, setupContext) -/>
-    { mgr } = dependencyMap
+    { mgr, Config } = dependencyMap
     setupContext._mgr = mgr // XXX
     serviceName = setupContext.getNameArg()
     if not serviceName:
@@ -25,9 +25,17 @@ export class ElasticsearchClientPort extends Provider:
 
     opts = {
       nodes: provider.nodes
-      ...if provider.auth: {auth: provider.auth}
+      ssl: {
+        rejectUnauthorized: false
+      }
       sniffOnStart: true
     }
+    if provider.user:
+      opts.auth = {
+        username: provider.user
+        password: Config.required(provider.passwordSecretId)
+      }
+
     client = new Client(opts)
     client
 
@@ -36,3 +44,5 @@ export class ElasticsearchClientPort extends Provider:
 
   static destroy(resource): void -/>
     <- resource.close()
+
+Container.provide(ElasticsearchClientPort)

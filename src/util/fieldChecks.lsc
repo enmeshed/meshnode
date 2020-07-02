@@ -1,64 +1,82 @@
-export checks(obj, ...checks): void ->
+import { errors } from '@enmeshed/errors'
+
+email_re = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+
+export check(obj, ...checks): void ->
   if (not obj) or typeof(obj) != 'object':
     throw new errors.MissingArgumentError("object")
 
   for elem check in checks:
-    check(obj)
+    check(obj, [])
 
-export checkObject(field, ...subchecks): void ->
-  (obj): void ->
+export checkObject(field, isOptional, ...subchecks): void ->
+  (obj, path): void ->
     v = obj?[field]
+
+    if v~looseEq(null):
+      if isOptional: return false else: throw new errors.MissingArgumentError(path.concat([field]).join('.'))
+
     if (not v) or typeof(v) != 'object':
-      throw new errors.InvalidArgumentError(field, "expected an object")
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), "expected an object")
 
     for elem check in subchecks:
-      check(v)
+      check(v, path.concat([field]))
 
 export checkString(field, isOptional, maxLen = 255, minLen = 1) ->
-  (obj): void ->
+  (obj, path): void ->
     val = obj?[field]
 
     if val~looseEq(null):
-      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+      if isOptional: return false else: throw new errors.MissingArgumentError(path.concat([field]).join('.'))
 
     if typeof(val) != "string":
-      throw new errors.InvalidArgumentError(field, 'expected a string')
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), 'expected a string')
 
     if val.length < minLen:
-      throw new errors.InvalidArgumentError(field, `string too short, minimum length ${minLen}`)
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), `string too short, minimum length ${minLen}`)
 
     if val.length > maxLen:
-      throw new errors.InvalidArgumentError(field, `string too long, maximum length ${maxLen}`)
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), `string too long, maximum length ${maxLen}`)
+
+export checkEmail(field, isOptional) ->
+  (obj, path): void ->
+    val = obj?[field]
+
+    if val~looseEq(null):
+      if isOptional: return false else: throw new errors.MissingArgumentError(path.concat([field]).join('.'))
+
+    if (typeof(val) != "string") or (not email_re.test(val)):
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), 'expected a valid email address')
 
 export checkOption(field, isOptional, ...opts) ->
-  (obj): void ->
+  (obj, path): void ->
     val = obj?[field]
 
     if val~looseEq(null):
-      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+      if isOptional: return false else: throw new errors.MissingArgumentError(path.concat([field]).join('.'))
 
     if typeof(val) != "string":
-      throw new errors.InvalidArgumentError(field, `expected a string`)
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), `expected a string`)
 
     if opts.indexOf(val) == -1:
-      throw new errors.InvalidArgumentError(field, `must be one of ${opts.join(',')}`)
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), `must be one of ${opts.join(',')}`)
 
 export checkStringArray(field, isOptional, maxLen = 255, minLen = 1) ->
-  (obj): void ->
+  (obj, path): void ->
     val = obj?[field]
 
     if val~looseEq(null):
-      if isOptional: return false else: throw new errors.MissingArgumentError(field)
+      if isOptional: return false else: throw new errors.MissingArgumentError(path.concat([field]).join('.'), `expected string array`)
 
     if not Array.isArray(val):
-      throw new errors.InvalidArgumentError(field, `expected string array`)
+      throw new errors.InvalidArgumentError(path.concat([field]).join('.'), `expected string array`)
 
     for idx i, elem e in val:
       if typeof(e) != 'string':
-        throw new errors.InvalidArgumentError(`${field}[${i}]`, `expected string`)
+        throw new errors.InvalidArgumentError(`${path.concat([field]).join('.')}[${i}]`, `expected string`)
 
       if e.length < minLen:
-        throw new errors.InvalidArgumentError(`${field}[${i}]`, `string too short, minimum length ${minLen}`)
+        throw new errors.InvalidArgumentError(`${path.concat([field]).join('.')}[${i}]`, `string too short, minimum length ${minLen}`)
 
       if e.length > maxLen:
-        throw new errors.InvalidArgumentError(`${field}[${i}]`, `string too long, maximum length ${maxLen}`)
+        throw new errors.InvalidArgumentError(`${path.concat([field]).join('.')}[${i}]`, `string too long, maximum length ${maxLen}`)
