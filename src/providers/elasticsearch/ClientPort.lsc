@@ -37,6 +37,8 @@ export class ElasticsearchClientPort extends Provider:
       }
 
     client = new Client(opts)
+    client[Symbol.for('mesh.service')] = service
+    client[Symbol.for('mesh.provider')] = provider
     client
 
   static init(resource, setupContext): void -/>

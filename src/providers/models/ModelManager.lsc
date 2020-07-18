@@ -52,7 +52,11 @@ export class ModelManager extends Provider:
       log: log
     })
 
-    this.esBackend = new ESBackend(this.elasticsearch, { log: log })
+    esProvider = this.elasticsearch[Symbol.for('mesh.provider')]
+    this.esBackend = new ESBackend(this.elasticsearch, {
+      log: log
+      ...if esProvider?.indexPrefix: { indexPrefix: esProvider.indexPrefix }
+    })
 
   destroy(): void -/>
     <- [this.mysqlBackend.shutdown(), this.esBackend.shutdown()]
