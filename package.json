@@ -23,23 +23,23 @@
     "lint:fix": "eslint --fix --ext .js,.lsc src"
   },
   "dependencies": {
-    "@enmeshed/grpc": "^0.2.6",
-    "bull": "^3.14.0",
-    "kafkajs": "^1.11.0",
+    "@enmeshed/grpc": "^1.0.0",
+    "bull": "^3.16.0",
+    "kafkajs": "^1.12.0",
     "mysql2": "^2.1.0",
     "express": "^4.17.1",
-    "jaeger-client": "^3.17.1",
-    "ioredis": "^4.14.1",
-    "@elastic/elasticsearch": "^7.5.0",
+    "jaeger-client": "^3.18.0",
+    "ioredis": "^4.17.3",
+    "@elastic/elasticsearch": "^7.8.0",
 
-    "@enmeshed/mesh-reflection": "^0.2.2",
-    "@enmeshed/mesh-reflection-file-watcher": "^0.2.1",
-    "@enmeshed/errors": "^1.0.5",
-    "@enmeshed/alpha": "^0.4.5",
-    "@ormojo/mysql": "^0.2.21",
-    "@ormojo/elasticsearch": "^0.2.18",
+    "@enmeshed/mesh-reflection": "^0.2.3",
+    "@enmeshed/mesh-reflection-file-watcher": "^0.2.2",
+    "@enmeshed/errors": "^1.0.6",
+    "@enmeshed/alpha": "^0.5.0",
+    "@ormojo/mysql": "^0.3.0",
+    "@ormojo/elasticsearch": "^0.3.0",
     "debug": "^4.1.1",
-    "cookie-parser": "^1.4.4",
+    "cookie-parser": "^1.4.5",
     "body-parser": "^1.19.0",
     "p-defer": "^3.0.0",
     "contexty": "^1.0.0",
@@ -50,21 +50,7 @@
     "globalthis": "^1.0.1"
   },
   "devDependencies": {
-    "npm-run-all": "^4.1.5"
-  },
-  "jest": {
-    "moduleFileExtensions": [
-      "js",
-      "json",
-      "lsc"
-    ],
-    "transform": {
-      "\\.lsc$": "<rootDir>/../node_modules/babel-jest"
-    },
-    "testRegex": "(\\.|/)test\\.lsc$",
-    "coveragePathIgnorePatterns": [
-      "/node_modules/",
-      "/lib/"
-    ]
+    "npm-run-all": "^4.1.5",
+    "find-parent-dir": "^0.3.0"
   }
 }
