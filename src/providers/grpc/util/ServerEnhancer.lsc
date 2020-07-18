@@ -1,7 +1,5 @@
 import { CommonError, PlainObjectMarshal } from '@enmeshed/errors'
-import { ServerEnhancer as BaseServerEnhancer } from '@enmeshed/grpc'
-
-grpc = require('@grpc/grpc-js')
+import { ServerEnhancer as BaseServerEnhancer, Metadata } from '@enmeshed/grpc'
 
 export class ServerEnhancer extends BaseServerEnhancer:
   constructor(server, baseContext, errorCodec) ->
@@ -25,7 +23,7 @@ export class ServerEnhancer extends BaseServerEnhancer:
     // Apply fields to the error that will be transferred to the Status
     // object by grpc.js
     err.code = err.getStatusCode()
-    err.metadata = new grpc.Metadata()
+    err.metadata = new Metadata()
     if buf: err.metadata.set('grpc-status-bin', buf)
 
     err

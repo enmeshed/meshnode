@@ -6,8 +6,6 @@ import { ServerEnhancer } from './util/ServerEnhancer'
 
 import '../Protocols'
 
-grpc = require('@grpc/grpc-js')
-
 class GrpcServicePort extends GenericServicePort:
   static providerName = "grpc.service.port"
 
@@ -48,8 +46,7 @@ class GrpcServicePort extends GenericServicePort:
     })
     this.baseContext.tracing.setTracer({tracer: `grpc:${service.name}`})
 
-    baseServer = new grpc.Server()
-    enhServer = new ServerEnhancer(baseServer, this.baseContext, this.errorCodec)
+    enhServer = new ServerEnhancer(null, this.baseContext, this.errorCodec)
     this.server = enhServer
 
     // Bind handlers to server
@@ -59,7 +56,7 @@ class GrpcServicePort extends GenericServicePort:
         throw new errors.InternalError(`GrpcMeshServicePort.start(): service ${svcName} could not be resolved by dynamic loader.`)
       enhServer.addService(svcDef.methods, svcBindings)
 
-    <- enhServer.bind(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure())
+    <- enhServer.bind(`0.0.0.0:${port}`)
     enhServer.start()
     log.info(`started gRPC server for ${this.service.name} on port ${port}`)
 
