@@ -9,7 +9,7 @@ export check(obj, ...checks): void ->
   for elem check in checks:
     check(obj, [])
 
-export checkObject(field, isOptional, ...subchecks): void ->
+export checkObject(field, isOptional, ...subchecks) ->
   (obj, path): void ->
     v = obj?[field]
 
