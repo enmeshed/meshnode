@@ -44,7 +44,7 @@
     "p-defer": "^3.0.0",
     "contexty": "^1.0.0",
     "opentracing": "^0.14.4",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.19",
     "safe-json-stringify": "^1.2.0",
     "chalk": "^3.0.0",
     "globalthis": "^1.0.1"
