@@ -37,7 +37,12 @@ export createFirstMiddleware(baseContext, serviceName) ->
       res.setHeader(k, v)
 
     // finalize the span when the response is completed
-    finishSpan = () => {
+    let wasFinished = false
+    finishSpan = (): void => {
+      // Prevent reentrancy
+      if wasFinished: return
+      now wasFinished = true
+
       // This is called outside the async context of the request.
       // Restore the log
       logHere = log.useContext(context)
