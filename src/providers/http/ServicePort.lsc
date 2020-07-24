@@ -25,7 +25,7 @@ class HttpServicePort extends GenericServicePort:
 
     this.app = app
 
-  startService(): void -/>
+  startService() -/>
     { Config, service, bindings } = this
     { provider } = this.node
 
@@ -60,7 +60,7 @@ class HttpServicePort extends GenericServicePort:
     )
     def.promise
 
-  stopService(): void ->
+  stopService() ->
     server = this.server
 
     if server:
