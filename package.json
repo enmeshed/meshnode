@@ -23,7 +23,7 @@
     "lint:fix": "eslint --fix --ext .js,.lsc src"
   },
   "dependencies": {
-    "@enmeshed/grpc": "^1.0.0",
+    "@enmeshed/grpc": "^1.0.1",
     "bull": "^3.16.0",
     "kafkajs": "^1.12.0",
     "mysql2": "^2.1.0",
@@ -34,8 +34,8 @@
 
     "@enmeshed/mesh-reflection": "^0.2.3",
     "@enmeshed/mesh-reflection-file-watcher": "^0.2.2",
-    "@enmeshed/errors": "^1.0.6",
-    "@enmeshed/alpha": "^0.5.0",
+    "@enmeshed/errors": "^1.0.7",
+    "@enmeshed/alpha": "^0.5.1",
     "@ormojo/mysql": "^0.3.0",
     "@ormojo/elasticsearch": "^0.3.0",
     "debug": "^4.1.1",
