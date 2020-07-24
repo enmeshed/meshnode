@@ -15,6 +15,7 @@ export { Job } from './providers/jobs/Jobs'
 
 import './providers/Node'
 import './providers/http/ServiceManager'
+import './providers/http/HttpHealthCheck'
 import './providers/grpc/ClientManager'
 import './providers/grpc/ServiceManager'
 import './providers/grpc/ProtocolPort'

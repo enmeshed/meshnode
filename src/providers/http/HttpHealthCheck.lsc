@@ -1,0 +1,85 @@
+import { Container, Provider } from '@enmeshed/alpha'
+
+express = require('express')
+http = require('http')
+deferred = require('p-defer')
+
+// An HTTP health check service. Responds with errors until `setHealthy()` is called.
+class HttpHealthCheck extends Provider:
+  static providerName = "http.healthcheck"
+  static dependencies = {
+    "Config": "config"
+  }
+
+  // Begin in unhealthy state
+  healthy = false
+
+  expressMiddleware(req, res, next): void =>
+    if this.healthy:
+      res.status(200).send('')
+    else:
+      res.status(500).send('')
+
+    next()
+
+  setHealthy(val: boolean): void ->
+    this.healthy = val
+
+  createApp(): void ->
+    app = express()
+    // Assume service is behind some proxy layer.
+    app.enable('trust proxy')
+    // Disallow fingerprinting
+    app.disable('x-powered-by')
+    // Enable first-crack middleware
+    app.use(this.expressMiddleware)
+
+    this.app = app
+
+  startService() -/>
+    { Config } = this
+
+    // Determine port number
+    port = Config.optional('healthcheck_port', Number) or 8250
+
+    // Setup express app
+    this.createApp()
+
+    // Setup httpd
+    def = deferred()
+    this.server = http.createServer(this.app)
+    log.info(`starting http server for healthcheck on port ${port}`)
+    this.server.listen(port, (err) =>
+      if err:
+        this.server = null
+        def.reject(err)
+      else:
+        def.resolve()
+    )
+    def.promise
+
+  stopService() ->
+    server = this.server
+
+    if server:
+      def = deferred()
+      server.close((err) =>
+        if err:
+          def.reject(err)
+        else:
+          this.server = null
+          def.resolve()
+      )
+      def.promise
+    else:
+      Promise.resolve(undefined)
+
+  init(): void -/>
+    log.trace(`starting local healthcheck service`)
+    <- this.startService()
+
+  destroy(): void -/>
+    log.info(`stopping local healthcheck service`)
+    <- this.stopService()
+
+Container.provide(HttpHealthCheck)
