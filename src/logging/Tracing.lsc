@@ -4,7 +4,7 @@ import { registerShutdownHook } from '../util/ShutdownHooks'
 import * as opentracing from "opentracing"
 
 deferred = require('p-defer')
-jaegerClient = require('jaeger-client')
+jaegerClient = require('@enmeshed/jaeger-client')
 globalThis = require('globalthis')()
 
 globalThis.tracers = globalThis.tracers or {}
