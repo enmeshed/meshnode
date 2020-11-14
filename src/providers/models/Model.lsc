@@ -18,4 +18,7 @@ export class Model extends Provider:
   static init(resource): void -/>
     Container.retain(resource)
 
+  static destroy(resource) ->
+    Promise.resolve(undefined)
+
 Container.provide(Model)
