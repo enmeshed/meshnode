@@ -1,10 +1,54 @@
 import { Provider, Container, splitName, Dependency } from '@enmeshed/alpha'
 import { errors } from '@enmeshed/errors'
 import { ClientEnhancer } from './util/ClientEnhancer'
+import { delayed } from '../../util/deferred'
 
 import "./ErrorCodec"
 
 mgr$ = Symbol('client_manager')
+
+// For services with a health check, verify readiness before directing traffic
+// to the service
+readinessCheck(client, opts) -/>
+  timeout = opts?.timeout or 30000
+  period = opts?.period or 3000
+  serviceName = opts?.serviceName or 'unknown'
+  log.trace('Beginning readinessCheck for service:', serviceName)
+
+  // Service with no check is assumed always healthy
+  check = client['healthCheck']
+  if not check:
+    log.trace('Service has no health check, early out:', serviceName)
+    return true
+
+  end = Date.now() + timeout
+  let isHealthy = false
+
+  while true:
+    if (Date.now() > end) or isHealthy: break
+    try:
+      log.trace('Performing health check for', serviceName)
+      { healthy } <- check.call(client, {})
+      if healthy:
+        now isHealthy = true
+        break
+    catch err:
+      now isHealthy = false
+      log.error({err}, `Health check for ${serviceName}: probe error`)
+
+    log.info('Health check for', serviceName, ': probe failed, trying again in', period, 'ms')
+    <- delayed(period)
+
+  if isHealthy:
+    return true
+  else:
+    log.error('Health check for', serviceName, ': all probes failed')
+    try:
+      client.close()
+    catch err:
+      log.error({err}, 'Health check: error while closing client')
+    throw new errors.UnavailableError(`${serviceName}: service failed readiness check`)
+
 
 // The GrpcClientPort manages connections to a particular gRPC mesh service
 // speaking a particular protocol.
@@ -42,6 +86,7 @@ class GrpcClientPort extends Provider:
     baseClient <- protos.client(protocolName, url)
     client = new ClientEnhancer(baseClient, errorCodec)
     client[mgr$] = mgr
+    <- readinessCheck(client, { serviceName: protocolName } )
     client
 
   static init(resource): void -/>
