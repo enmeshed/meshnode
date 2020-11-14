@@ -28,8 +28,11 @@ export class Job:
     job.setData(nativeJob.data)
     job
 
+  setQueueName(name: string): void ->
+    this.queueName = name
+
   getQueueName(): string ->
-    this.constructor.getQueueName()
+    this.queueName or this.constructor.getQueueName()
 
   getData() -> this.data
 
@@ -160,6 +163,7 @@ export class Jobs extends Provider:
         events.fire("system.job.completed", { jobQueue: queueName, data })
       catch err:
         logHere.error({err})
+        events.fire("system.job.failed", { jobQueue: queueName, data })
         // Discard jobs that encounter non-transient errors
         if not err.retry:
           logHere.info('discarding job for non-retriable error')
