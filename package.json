@@ -34,9 +34,9 @@
 
     "@enmeshed/mesh-reflection": "^0.2.3",
     "@enmeshed/mesh-reflection-file-watcher": "^0.2.2",
-    "@enmeshed/errors": "^1.0.7",
-    "@enmeshed/alpha": "^0.5.1",
-    "@ormojo/mysql": "^0.3.0",
+    "@enmeshed/errors": "^1.1.1",
+    "@enmeshed/alpha": "^0.5.4",
+    "@ormojo/mysql": "^0.3.1",
     "@ormojo/elasticsearch": "^0.3.0",
     "debug": "^4.1.1",
     "cookie-parser": "^1.4.5",

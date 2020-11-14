@@ -1,0 +1,23 @@
+// Creates a persistent named connection to the default Redis service.
+import { Container, Provider } from '@enmeshed/alpha'
+
+export class RedisNamedConnection extends Provider:
+  static providerName = "redis.named.connection"
+  static dependencies = {
+    "redis": "redis"
+  }
+
+  static injectDependencies({ redis }, context) -/>
+    if not context.getNameArg():
+      throw new Error("redis.named.connection: a name is required")
+
+    conn <- redis.connection()
+    conn
+
+  static init(conn): void -/>
+    Container.retain(conn)
+
+  static destroy(conn): void -/>
+    return
+
+Container.provide(RedisNamedConnection)

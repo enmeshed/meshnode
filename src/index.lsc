@@ -12,6 +12,7 @@ export { withResources } from './util/withResources'
 export { Config } from './providers/Config'
 export { Protocols } from './providers/Protocols'
 export { Job } from './providers/jobs/Jobs'
+export { ModelManager } from './providers/models/ModelManager'
 
 import './providers/Node'
 import './providers/http/ServiceManager'
@@ -21,6 +22,7 @@ import './providers/grpc/ServiceManager'
 import './providers/grpc/ProtocolPort'
 import './providers/events/Events'
 import './providers/models/Model'
+import './providers/redis/NamedConnection'
 
 import * as fieldChecks from './util/fieldChecks'
 export { fieldChecks }
