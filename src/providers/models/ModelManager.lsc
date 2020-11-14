@@ -1,4 +1,4 @@
-import { Provider, Container } from '@enmeshed/alpha'
+import { Provider, Container, Namespace } from '@enmeshed/alpha'
 import { PooledConnectionManager } from '../mysql/util/PooledConnectionManager'
 import { errors } from '@enmeshed/errors'
 import { MySQLBackend } from '@ormojo/mysql'
@@ -27,6 +27,9 @@ injectMethods(model, backend): void ->
   model.find(query) ->
     backend.find(query)
 
+  model.findById(id) ->
+    backend.findById(model, id)
+
 export class ModelManager extends Provider:
   static providerName = "model.manager"
   static dependencies = {
@@ -38,6 +41,17 @@ export class ModelManager extends Provider:
     injectMethods: true
   }
 
+  // Static early bindings
+  static bindAll(bindings): void ->
+    // Delegate to manager if already live
+    existingManager = Namespace.globalNamespace.checkName("model.manager")
+    if existingManager and existingManager.bindAll and existingManager != this:
+      return existingManager.bindAll(bindings)
+
+    // Otherwise, store for binding when the manager comes online
+    this.earlyBindings = this.earlyBindings or []
+    this.earlyBindings.push(bindings)
+
   // Backends
   mysqlBackend = null
   esBackend = null
@@ -46,6 +60,7 @@ export class ModelManager extends Provider:
     // Prevent manager resources from being freed until app shutdown.
     Container.retain(this)
 
+    // TODO: get these from alpha
     this.mysqlBackend = new MySQLBackend(null, {
       connectionManager: new PooledConnectionManager(this.mysql)
       database: this.mysql.getMysqlOptions().database
@@ -57,6 +72,13 @@ export class ModelManager extends Provider:
       log: log
       ...if esProvider?.indexPrefix: { indexPrefix: esProvider.indexPrefix }
     })
+
+    // Bind global early bindings
+    if ModelManager.earlyBindings:
+      for elem bindings in ModelManager.earlyBindings:
+        log.trace("Model manager executing early binding", bindings)
+        this.bindAll(bindings)
+      ModelManager.earlyBindings = undefined
 
   destroy(): void -/>
     <- [this.mysqlBackend.shutdown(), this.esBackend.shutdown()]
