@@ -1,0 +1,83 @@
+export class MessageProcessor:
+  kafka = null
+  handlers = []
+
+  constructor(kafka) ->
+    this.kafka = kafka
+
+  getConsumerOpts() -> {}
+  getSubscribeOpts() -> {}
+  getTopic() -> this.getSubscribeOpts()?.topic or "unknown"
+
+  subscribe(handler) ->
+    if not this.kafka:
+      throw new Error("subscribing to destroyed MessageProcessor")
+    this.handlers.push(handler)
+    if (not this.consumer) and (not this.creatingConsumer):
+      this.createConsumer()
+    return {
+      unsubscribe: (): void => this.unsubscribe(handler)
+    }
+
+  unsubscribe(handler): void ->
+    this.handlers = this.handlers.filter(x -> x != handler)
+    if (this.handlers.length == 0) and (this.consumer):
+      previousConsumer = this.consumer
+      this.consumer = null
+      this.releaseConsumer(previousConsumer)
+
+  processMessage(data): void => {
+    for elem handler in this.handlers:
+      handler(data).catch((err) -> log.error({err}, "MessageProcessor: unhandled error in message handler"))
+  }
+
+  createConsumer(): void ->
+    this._createConsumer().catch(
+      (err) -> log.error({err}, "MessageProcessor: error while creating consumer")
+    )
+
+  releaseConsumer(consumer): void ->
+    this._releaseConsumer(consumer).catch(
+      (err) -> log.error({err}, "MessageProcessor: error while releasing consumer")
+    )
+
+  destroy(): void ->
+    this.handlers = []
+    if this.consumer:
+      this.releaseConsumer(this.consumer)
+      this.consumer = null
+    this.kafka = null
+
+  _createConsumer(): void -/>
+    if this.consumer: return
+    this.creatingConsumer = true
+    nextConsumer <- this.kafka.consumer(this.getConsumerOpts())
+    log.info("MessageProcessor: listening to topic", { topic: this.getTopic() })
+    <- nextConsumer.subscribe(this.getSubscribeOpts())
+    <- nextConsumer.run({ eachMessage: this.processMessage })
+    this.creatingConsumer = false
+    if this.consumer:
+      this.releaseConsumer(nextConsumer)
+    else:
+      this.consumer = nextConsumer
+
+  _releaseConsumer(consumer): void -/>
+    if not consumer: return
+    log.info("MessageProcessor: disconnecting consumer", { topic: this.getTopic() })
+    <- this.kafka.disconnect(consumer)
+
+// An always-on message processor compatible with old style Fanout.
+export class StaticMessageProcessor extends MessageProcessor:
+  consumerOpts = {}
+  subscribeOpts = {}
+
+  constructor(kafka, consumerOpts, subscribeOpts) ->
+    super(kafka)
+    this.consumerOpts = consumerOpts
+    this.subscribeOpts = subscribeOpts
+
+  getConsumerOpts() -> this.consumerOpts
+  getSubscribeOpts() -> this.subscribeOpts
+
+  addHandler(handler): void ->
+    this.subscribe(handler)

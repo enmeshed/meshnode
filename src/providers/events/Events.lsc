@@ -1,5 +1,5 @@
 import { Provider, Container } from '@enmeshed/alpha'
-import lodash from "lodash"
+import { StaticMessageProcessor } from './MessageProcessor'
 
 import '../kafka/AnyClientPort'
 
@@ -80,19 +80,16 @@ export class Events extends Provider:
   listen(eventName, handler): void ->
     kafkaTopic = this.kafka.topic(eventName)
     wrappedHandler = this.wrapHandler(handler, eventName)
-    listenAsync(): void =/>
-      if this.consumers[eventName]:
-        this.consumers[eventName].addHandler(wrappedHandler)
-      else:
-        consumer = new Fanout(
-          this.kafka
-          { groupId: this.kafka.group(`event.handler:${kafkaTopic}`) }
-          { topic: kafkaTopic, fromBeginning: false }
-        )
-        this.consumers[eventName] = consumer
-        consumer.addHandler(wrappedHandler)
-        <- consumer.init()
-    listenAsync().catch((err) -> log.error({ err }, "Error while adding distributed event handler"))
+    if this.consumers[eventName]:
+      this.consumers[eventName].addHandler(wrappedHandler)
+    else:
+      consumer = new StaticMessageProcessor(
+        this.kafka
+        { groupId: this.kafka.group(`event.handler:${kafkaTopic}`) }
+        { topic: kafkaTopic, fromBeginning: false }
+      )
+      this.consumers[eventName] = consumer
+      consumer.addHandler(wrappedHandler)
 
   listenAll(handlerMap): void ->
     for key k, val v in handlerMap:
