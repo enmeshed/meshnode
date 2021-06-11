@@ -1,10 +1,13 @@
 import { ResolutionContext, Namespace } from '@enmeshed/alpha'
 
 export function withResources(depMap, fn) ->
+  functionName = fn.name or '(anonymous)'
+  contextName = 'fn:' + functionName
+
   (...args) -/>
     namespace = Namespace.globalNamespace
     { Dependencies } = namespace.constructor
-    resolutionContext = new ResolutionContext("_using")
+    resolutionContext = new ResolutionContext(contextName)
     node = new (namespace.constructor.DependencyNode)()
     provider = {}
     setupContext = {

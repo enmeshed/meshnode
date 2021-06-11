@@ -1,0 +1,81 @@
+import { LogWriter } from './Logging'
+import { withResources } from '../util/withResources'
+
+LogstashClient = require('logstash-client')
+
+export class LogstashLogWriter extends LogWriter:
+  buffer = []
+  logstashClient = null
+
+  constructor() ->
+    super()
+    this.init()
+
+  writeInternal(record) ->
+    if this.logstashClient:
+      this.logstashClient.send(record)
+    else:
+      this.buffer.push(record)
+
+  flushBuffer() ->
+    for elem rec in this.buffer:
+      this.logstashClient.send(rec)
+    this.buffer = []
+
+  init() ->
+    // Get and create the logstash client asynchronously
+    createClient = withResources(
+      {"config": "config"}
+      createClient({config}) -/>
+        host = config.required('LOGSTASH_HOST', String)
+        port = config.required('LOGSTASH_PORT', Number)
+        new LogstashClient({
+          type: 'tcp'
+          host
+          port
+          maxQueueSize: 1000
+        })
+    )
+
+    createClient()
+      .then(
+        (client) =>
+          log.info(`Handing logging off to logstash, buffer size ${this.buffer.length}`)
+          this.logstashClient = client
+          this.flushBuffer()
+      )
+      .catch( (err) ->
+        log.error()
+        throw err
+      )
+
+  formatRecord(data) ->
+    rec = Object.assign({}, data)
+    labels = rec.labels
+
+    // Format Logstash messages according to the ECS logging standard.
+    // ecs.version
+    rec['ecs.version'] = '1.0.0'
+
+    // @timestamp
+    timestamp = (new Date(rec.time)).toISOString()
+    rec['@timestamp'] = timestamp
+    delete rec.time
+
+    // log.level
+    rec['log.level'] = rec.level
+    delete rec.level
+    delete rec.levelNumber
+
+    // TODO: mine labels for additional ECS-standard fields
+
+    rec
+
+  writeToLog(data) ->
+    rec = this.formatRecord(data)
+
+
+
+    this.writeInternal(rec)
+
+    Promise.resolve(undefined)

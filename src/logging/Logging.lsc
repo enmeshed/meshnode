@@ -56,6 +56,7 @@ export class LogMiddleware:
       this.logEntry = handler.bind(this)
 
   // Called for each log entry the middleware sees.
+  // eslint-disable-next-line @lightscript/no-unused-vars
   logEntry(data, context): void ->
     return
 
@@ -74,10 +75,10 @@ errorFilter = new LogMiddleware((data, ctx): void ->
 
     if not data.message: data.message = err.message
     data["error.message"] = err.message
-    data["error.stack"] = err.stack
+    data["error.stack_trace"] = err.stack
     if (err instanceof CommonError):
       marshalledError = (new PlainObjectMarshal()).marshalError(err)
-      data["error.kind"] = marshalledError.errorClass
+      data["error.type"] = marshalledError.errorClass
       data["error.dump"] = err.dump()
       data["error.status"] = err.getStatusName()
       data["error.retry"] = if err.retry: true else: false
@@ -86,7 +87,7 @@ Log.addMiddleware(errorFilter)
 
 tagger = new LogMiddleware((data, ctx): void ->
   if ctx.tracing?.tags:
-    Object.assign(data, ctx.tracing.tags)
+    data.labels = Object.assign({}, ctx.tracing.tags)
 )
 Log.addMiddleware(tagger)
 
@@ -101,6 +102,7 @@ export class LogWriter extends LogMiddleware:
     this
 
   // Filter events to be logged.
+  // eslint-disable-next-line @lightscript/no-unused-vars
   filter(data, context): boolean ->
     if data.levelNumber < this.level:
       false
@@ -108,6 +110,7 @@ export class LogWriter extends LogMiddleware:
       true
 
   // Write a log event that's passed the filter.
+  // eslint-disable-next-line @lightscript/no-unused-vars
   writeToLog(data, context): Promise<void> ->
     Promise.resolve(undefined)
 
@@ -127,8 +130,15 @@ export class OpenTracingLogWriter extends LogWriter:
     if not span: return Promise.resolve(undefined)
 
     rec = Object.assign({}, data)
+
+    // Time is injected separately for OpenTracing
     time = rec.time
     delete rec.time
+
+    // Labels must appear at root level in OpenTracing log entries
+    labels = rec.labels
+    delete rec.labels
+    Object.assign(rec, labels)
 
     span.log(rec, time)
 
