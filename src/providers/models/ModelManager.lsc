@@ -89,9 +89,15 @@ export class ModelManager extends Provider:
     sqlMig = this.mysqlBackend.createMigration()
     esMig = this.esBackend.createMigration()
     <- [sqlMig.prepare(), esMig.prepare()]
+    sqlPlan = sqlMig.getMigrationPlan()
+    esPlan = esMig.getMigrationPlan()
+
     {
-      mysql: sqlMig.getMigrationPlan()
-      elasticsearch: esMig.getMigrationPlan()
+      actionNeeded: sqlPlan.actionNeeded or esPlan.actionNeeded
+      databases: {
+        mysql: sqlPlan
+        elasticsearch: esPlan
+      }
     }
 
   doMigration(backendId): void -/>
