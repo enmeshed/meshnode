@@ -10,12 +10,12 @@ export { singletonProvider } from './util/SingletonProvider'
 export { loadRoutesFromWebpackContext } from './util/WebpackRouteEnumerator'
 export { withResources } from './util/withResources'
 
+export { Node } from './providers/Node'
 export { Config } from './providers/Config'
 export { Protocols } from './providers/Protocols'
 export { Job } from './providers/jobs/Jobs'
 export { ModelManager } from './providers/models/ModelManager'
 
-import './providers/Node'
 import './providers/http/ServiceManager'
 import './providers/http/HttpHealthCheck'
 import './providers/grpc/ClientManager'

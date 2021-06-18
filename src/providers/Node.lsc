@@ -18,7 +18,7 @@ Config.inject('ports', {
 
 debug = require('debug')('@enmeshed/meshnode')
 
-class Node extends Provider:
+export class Node extends Provider:
   static providerName = "node"
   static dependencies = {
     "config": "config"
@@ -31,6 +31,27 @@ class Node extends Provider:
   environment = null
   providerName = null // Am I a named provider?
   provider = null
+
+  // Register the main function for the node
+  static main(fn) ->
+    this._main(fn).catch(
+      // Outer catch handler; we should never reach here but this is
+      // required so Node doesn't complain about dangling promises
+      (err) ->
+        console.error(err)
+        process.exit(1)
+    )
+
+  static _main(fn) -/>
+    node <- Container.get('node')
+
+    try:
+      <- fn()
+    catch err:
+      log.fatal({err}, "Node.main(): main() function crashed")
+      node.stopNode(1)
+
+    // If fn() terminates, peaceful fallthrough to Node runloop.
 
   init() -/>
     Container.retain(this)
@@ -53,9 +74,7 @@ class Node extends Provider:
       log.warn('Node.init(): node has no provider!')
 
     this.name <- this.computeName()
-    log.debug('Node.init(): node name', this.name)
-
-    log.info('Node.init(): node ready')
+    log.info('Node.init(): node ready:', this.name)
 
   computeName() -/>
     os.hostname()
