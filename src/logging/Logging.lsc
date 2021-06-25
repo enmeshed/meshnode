@@ -158,9 +158,10 @@ export vaLog(levelNumber, ctx, ...args): void ->
     // log({fields}, ...message)
     Object.assign(data, args[0])
     if args.length > 1:
-      data.message = util.format(...(args.slice(1)))
+      data.message = util.formatWithOptions({ depth: 20 }, ...(args.slice(1)))
   elif typeof(args[0]) == 'string':
-    data.message = util.format(...args)
+    // log(message, ...additional)
+    data.message = util.formatWithOptions({ depth: 20 }, ...args)
 
   Log.doLog(ctx, data)
 

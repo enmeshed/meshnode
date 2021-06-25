@@ -53,4 +53,8 @@ export class Config extends Provider:
   optional(key, ty) ->
     this.get(key, ty)
 
+  default(key, ty, defaultValue) ->
+    value = this.get(key, ty)
+    if value == null: defaultValue else: value
+
 Container.provide(Config)
