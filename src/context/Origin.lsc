@@ -18,4 +18,10 @@ export class Origin extends ContextItem:
         if not toContext.tracing.hasTag(k):
           toContext.tracing.tag(k, v, true)
 
+  getSessionId() ->
+    this.payload?.sessionId
+
+  getUserId() ->
+    this.payload?.userId
+
 Context.registerType(Origin)
