@@ -22,7 +22,11 @@ export class MysqlClientPort extends GenericClientPort:
     if this.pools[name]:
       throw new errors.AlreadyExistsError("pool", name)
 
-    conf = Object.assign({}, this.dbConf, overrides)
+    conf = if overrides?.forceConfig:
+      overrides.forceConfig
+    else:
+      Object.assign({}, this.dbConf, overrides)
+
     pool_x = mysql.createPool(conf)
     pool = pool_x.promise()
     this.pools[name] = pool
@@ -38,6 +42,10 @@ export class MysqlClientPort extends GenericClientPort:
     if not p:
       throw new errors.InternalError(`pool ${name} does not exist`)
     p
+
+  hasPool(name) ->
+    p = this.pools[name or '']
+    if p: true else: false
 
   getPoolNames() -> Object.keys(this.pools)
 
