@@ -1,50 +1,46 @@
-import { errors } from '@enmeshed/errors'
-import { Provider, Dependency, Container } from '@enmeshed/alpha'
+import { Dependencies, Dependency, Container } from '@enmeshed/alpha'
+import { GenericClientPort } from '../GenericClientPort'
 
 { Client } = require('@elastic/elasticsearch')
 
-export class ElasticsearchClientPort extends Provider:
+export class ElasticsearchClientPort extends GenericClientPort:
   static providerName = "elasticsearch.client.port"
-  static dependencies = {
+  static dependencies = Dependencies.union(super.dependencies, {
     "mgr": Dependency.weak("elasticsearch.client.manager")
     "node": "node"
     "Config": "config"
-  }
+  })
 
-  static injectDependencies(dependencyMap, setupContext) -/>
-    { mgr, Config } = dependencyMap
-    setupContext._mgr = mgr // XXX
-    serviceName = setupContext.getNameArg()
-    if not serviceName:
-      throw new errors.InvalidArgumentError("serviceName", "missing")
+  startClient(): void -/>
+    { service, provider, Config } = this
+    log.info(`creating client for Elasticsearch service ${service.name}`)
 
-    service <- mgr.awaitService(serviceName)
-    provider = service.getProvider()
-
-    log.trace(`starting client for ${service.type} service: ${service.name}`)
-
-    opts = {
+    esConf = {
       nodes: provider.nodes
+      // XXX: insecure but OK for now
       ssl: {
         rejectUnauthorized: false
       }
       sniffOnStart: true
     }
+
     if provider.user:
-      opts.auth = {
+      esConf.auth = {
         username: provider.user
         password: Config.required(provider.passwordSecretId)
       }
 
-    client = new Client(opts)
-    client[Symbol.for('mesh.service')] = service
-    client[Symbol.for('mesh.provider')] = provider
-    client
+    this.esConf = esConf
+    this.client = new Client(esConf)
 
-  static init(resource, setupContext): void -/>
-    setupContext._mgr.registerPort(resource)
+  stopClient(): void -/>
+    log.info(`stopping Elasticsearch client for ${this.service.name}`)
+    <- this.client.close()
 
-  static destroy(resource): void -/>
-    <- resource.close()
+  getClient() -> this.client
+
+  getClientConfig() -> Object.assign({}, this.esConf)
+
+  _createClient(opts) -> new Client(opts)
 
 Container.provide(ElasticsearchClientPort)
