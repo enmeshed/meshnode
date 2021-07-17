@@ -12,9 +12,15 @@ export class StdoutLogWriter extends LogWriter:
     delete rec.message
     delete rec.level
     delete rec.levelNumber
+    // Remove unused labels to prevent logspam
+    if rec.labels and Object.keys(rec.labels).length == 0:
+      delete rec.labels
 
     fTime = (new Date(time)).toISOString()
-    rest = util.format(rec)
+    rest = if Object.keys(rec).length > 0:
+      util.format(rec)
+    else:
+      ''
 
     process.stdout.write(`[${fTime}] ${level}: ${message} ${rest}\n`)
 
