@@ -8,6 +8,7 @@ export class RedisClientPort extends GenericClientPort:
   static dependencies = Dependencies.union(super.dependencies, {
     "mgr": Dependency.weak("redis.client.manager")
     "node": "node"
+    "Config": "config"
   })
 
   // All connections to this service
@@ -35,7 +36,8 @@ export class RedisClientPort extends GenericClientPort:
       host: provider.host
       port: provider.port
       db: provider.database
-      ...if provider.password: { password: provider.password }
+      ...if provider.passwordSecretId:
+        { password: this.Config.required(provider.passwordSecretId) }
     }
 
   stopClient(): void -/>
