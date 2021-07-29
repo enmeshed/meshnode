@@ -15,6 +15,7 @@ class GrpcClientManager extends GenericClientManager:
 
   // Locate a service that speaks the given protocol. If there are no services
   // or multiple services, the search fails.
+  // TODO: cache this and dump the cache on environmentChanged
   serviceNameForProtocol(protocolName): string -/>
     // First load the protocol
     <- this.protos.definition(protocolName)
@@ -33,6 +34,19 @@ class GrpcClientManager extends GenericClientManager:
       throw new errors.FailedPreconditionError("ambiguous", "serviceForProtocol", `'${protocolName}' is provided by multiple services.`)
     else:
       candidateServices[0].name
+
+  // Perform an indirect gRPC call
+  call(target, arg) -/>
+    client <- if target.meshService:
+      Container.get(`grpc.client.port:${target.meshService}:${target.service}`)
+    else:
+      Container.get(`grpc.client.protocol:${target.service}`)
+
+    method = client[target.method]
+    if not method:
+      throw new errors.NotFoundError("method", target.method)
+
+    method.call(client, arg)
 
 
 Container.provide(GrpcClientManager)
