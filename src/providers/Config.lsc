@@ -1,5 +1,8 @@
+import fs from 'fs'
 import { Provider, Container } from '@enmeshed/alpha'
 import { errors } from '@enmeshed/errors'
+
+yaml = require('js-yaml')
 
 fromEnv(key: string) ->
   upperKey = key.toUpperCase()
@@ -20,6 +23,8 @@ export class Config extends Provider:
 
   static inject(k, v) ->
     this.injectedConfigs[k] = v
+
+  cachedConfigFiles = {}
 
   init(): void -/>
     Container.retain(this)
@@ -56,5 +61,39 @@ export class Config extends Provider:
   default(key, ty, defaultValue) ->
     value = this.get(key, ty)
     if value == null: defaultValue else: value
+
+  // Load a JSON or YAML config file. Results are cached.
+  file(key, basePath = "/config") ->
+    if (not key) or (typeof(key) != 'string'):
+      throw new Error("missing config key")
+
+    if this.cachedConfigFiles[key]:
+      return this.cachedConfigFiles[key]
+
+    log.trace(`Config.file: cache miss, trying to load config file with key '${key}'`)
+
+    yamlData = try:
+      fs.readFileSync(basePath + "/" + key + ".yaml", "utf8")
+    catch err:
+      null
+
+    jsonData = if not yamlData:
+      try:
+        fs.readFileSync(basePath + "/" + key + ".json", "utf8")
+      catch err:
+        null
+
+    if (not yamlData) and (not jsonData):
+      throw new Error(`config file with key '${key}' does not exist`)
+
+    result = if jsonData:
+      JSON.parse(jsonData)
+    elif yamlData:
+      yaml.load(yamlData)
+
+    log.info(`Config.file: cached new config file with key '${key}'`)
+    this.cachedConfigFiles[key] = result
+
+    result
 
 Container.provide(Config)

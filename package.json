@@ -36,7 +36,7 @@
     "@enmeshed/mesh-reflection-file-watcher": "^0.2.3",
     "@enmeshed/errors": "^1.1.2",
     "@enmeshed/alpha": "^0.5.5",
-    "@ormojo/mysql": "^0.4.1",
+    "@ormojo/mysql": "^0.4.2",
     "@ormojo/elasticsearch": "^0.4.0",
     "debug": "^4.1.1",
     "cookie-parser": "^1.4.5",
@@ -48,7 +48,8 @@
     "safe-json-stringify": "^1.2.0",
     "chalk": "^3.0.0",
     "globalthis": "^1.0.1",
-    "logstash-client": "^1.1.1"
+    "logstash-client": "^1.1.1",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5",
