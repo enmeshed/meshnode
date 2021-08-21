@@ -1,0 +1,21 @@
+// The Security context item describes the permissions associated
+// with a request or other operation.
+import { ContextItem, Context } from './Context'
+
+export class Security extends ContextItem:
+  static type = 'security'
+  static unique = true
+  static heritable = true
+
+  static create(opts = {}) ->
+    o = new this()
+    Object.assign(o.payload, opts)
+    o
+
+  wasAdded(toContext): void ->
+    toContext.security = this
+
+  getUserId() ->
+    this.payload?.userId
+
+Context.registerType(Security)

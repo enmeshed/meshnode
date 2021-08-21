@@ -7,7 +7,7 @@ export class Origin extends ContextItem:
   static heritable = true
 
   static create(opts = {}) ->
-    o = new Origin()
+    o = new this()
     Object.assign(o.payload, opts)
     o
 
