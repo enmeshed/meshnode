@@ -23,10 +23,9 @@ class GrpcServicePort extends GenericServicePort:
     { protocols } = this.service
     for elem proto in protocols:
       if not bindings[proto]:
-        throw new errors.UnimplementedError(`GrpcServicePort.init(): service ${this.serviceName} does not implement requred protocol ${proto}`)
+        throw new errors.UnimplementedError(`GrpcServicePort.init(): service ${this.serviceName} does not implement required protocol ${proto}`)
 
     { protos } = this
-    debugger
     <- protos.findAll(...protocols)
 
     // Determine port number
