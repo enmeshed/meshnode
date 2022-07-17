@@ -37,7 +37,7 @@
     "@enmeshed/errors": "^1.1.2",
     "@enmeshed/alpha": "^0.5.5",
     "@ormojo/mysql": "^0.4.4",
-    "@ormojo/elasticsearch": "^0.4.5",
+    "@ormojo/elasticsearch": "^0.4.7",
     "@ormojo/ephraim": "^1.0.3",
     "@ormojo/ormojo": "^1.1.2",
     "debug": "^4.1.1",
