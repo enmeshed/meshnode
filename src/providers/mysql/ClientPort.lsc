@@ -1,8 +1,24 @@
 import { errors } from '@enmeshed/errors'
 import { Dependencies, Dependency , Container } from '@enmeshed/alpha'
 import { GenericClientPort } from '../GenericClientPort'
+import { deferred } from '../../util/deferred'
 
 mysql = require('mysql2')
+
+// XXX: we need this because the "connection" listener triggers off the
+// raw connections and not the promisified ones.
+//
+// Frankly the mysql driver promise/callback situation is pretty bad
+// but both major drivers that exist right now have these issues.
+promisifiedQuery(conn, sql) ->
+  d = deferred()
+  conn.query(sql, (err, results, fields): void ->
+    if err:
+      d.reject(err)
+    else:
+      d.resolve({results, fields})
+  )
+  d.promise
 
 export class MysqlClientPort extends GenericClientPort:
   static providerName = "mysql.client.port"
@@ -28,6 +44,30 @@ export class MysqlClientPort extends GenericClientPort:
       Object.assign({}, this.dbConf, overrides)
 
     pool_x = mysql.createPool(conf)
+
+    // Fix for MySQL timeout errors on pooled connections.
+    // Whenever a connection is opened to the MySQL server, we will spin up
+    // a setInterval process to periodically send 'SELECT 1' queries, thereby
+    // preventing the connections from being terminated.
+    pool_x.addListener("connection", (conn) ->
+      log.info("MysqlClientPort: new pooled connection opening, registering keepalive")
+
+      let interval = setInterval(
+        (): void -/>
+          try:
+            <- promisifiedQuery(conn, "SELECT 1")
+          catch err:
+            // If the query fails, destroy the connection and stop trying
+            // to keep it alive.
+            log.info("MysqlClientPort: pooled connection failed keepalive check, dropping", { err })
+            clearInterval(interval)
+            try:
+              conn.destroy()
+
+        10000
+      )
+    )
+
     pool = pool_x.promise()
     this.pools[name] = pool
 
