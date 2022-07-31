@@ -37,4 +37,4 @@ export deferredWithTimeout(ms, ...args) ->
 export delayed(ms) ->
   def = deferred()
   setTimeout(-> def.resolve(undefined), ms)
-  def
+  def.promise
